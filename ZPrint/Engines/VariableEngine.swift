@@ -1,8 +1,8 @@
 import Foundation
 
 enum VariableEngine {
-    static func sampleValues(from variables: [VariableDefinition]) -> [String: String] {
-        Dictionary(uniqueKeysWithValues: variables.map { ($0.name, $0.sampleValue) })
+    static func sampleValues(from variables: [String: String]) -> [String: String] {
+        variables
     }
 
     static func resolve(_ template: String, values: [String: String]) -> String {
