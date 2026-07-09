@@ -10,8 +10,14 @@ import SwiftUI
 @main
 struct ZPrintApp: App {
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        DocumentGroup(newDocument: ZPrintDocument()) { file in
+            MainDocumentView(
+                document: file.$document,
+                fileURL: file.fileURL
+            )
         }
+        .defaultSize(width: 1200, height: 800)
+        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unifiedCompact)
     }
 }
