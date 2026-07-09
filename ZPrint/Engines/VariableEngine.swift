@@ -100,6 +100,29 @@ struct VariableEngine {
         return normalized
     }
 
+    static func batchContexts(for document: ZPrintDocument) -> [Context] {
+        let sequenceVariables = document.variables.filter { $0.type == .sequence }
+
+        guard !sequenceVariables.isEmpty else {
+            return fallbackCounterContexts(for: document)
+        }
+
+        var baseContext = Context()
+        for variable in document.variables where variable.type == .text {
+            baseContext[variable.name] = defaultTextValue(for: variable)
+        }
+
+        let variableValues = sequenceVariables.map { variable in
+            values(for: variable, document: document)
+        }
+
+        return combinedContexts(
+            baseContext: baseContext,
+            variables: sequenceVariables,
+            values: variableValues
+        )
+    }
+
     private static func renderedValue(
         for name: String,
         inlineFormat: String?,
@@ -123,6 +146,105 @@ struct VariableEngine {
         }
 
         switch name {
+        case "name":
+            return "Name"
+        case "week":
+            return "\(Calendar.current.component(.weekOfYear, from: Date()))"
+        case "amount":
+            return "1"
+        case "id":
+            return "ID"
+        default:
+            return ""
+        }
+    }
+
+    private static func fallbackCounterContexts(for document: ZPrintDocument) -> [Context] {
+        guard document.printSettings.counterEnd >= document.printSettings.counterStart else {
+            return []
+        }
+
+        let range = document.printSettings.counterStart...document.printSettings.counterEnd
+        var contexts: [Context] = []
+
+        for number in range {
+            for _ in 0..<max(1, document.printSettings.copiesPerNumber) {
+                contexts.append([
+                    "number": formatted(
+                        value: "\(number)",
+                        format: document.printSettings.numberFormat
+                    )
+                ])
+            }
+        }
+
+        return contexts
+    }
+
+    private static func values(
+        for variable: VariableDefinition,
+        document: ZPrintDocument
+    ) -> [String] {
+        let range = document.printSettings.range(for: variable)
+        let startValue = range?.startValue ?? variable.startValue
+        let endValue = range?.endValue ?? max(variable.startValue, variable.endValue)
+        let copiesPerValue = max(1, range?.copiesPerValue ?? 1)
+        let step = max(1, variable.step)
+
+        guard endValue >= startValue else {
+            return []
+        }
+
+        var values: [String] = []
+        var currentValue = startValue
+
+        while currentValue <= endValue {
+            for _ in 0..<copiesPerValue {
+                values.append("\(currentValue)")
+            }
+
+            currentValue += step
+        }
+
+        return values
+    }
+
+    private static func combinedContexts(
+        baseContext: Context,
+        variables: [VariableDefinition],
+        values: [[String]]
+    ) -> [Context] {
+        guard let variable = variables.first,
+              let variableValues = values.first,
+              !variableValues.isEmpty else {
+            return [baseContext]
+        }
+
+        let remainingVariables = Array(variables.dropFirst())
+        let remainingValues = Array(values.dropFirst())
+        var contexts: [Context] = []
+
+        for value in variableValues {
+            var context = baseContext
+            context[variable.name] = value
+            contexts.append(
+                contentsOf: combinedContexts(
+                    baseContext: context,
+                    variables: remainingVariables,
+                    values: remainingValues
+                )
+            )
+        }
+
+        return contexts
+    }
+
+    private static func defaultTextValue(for variable: VariableDefinition) -> String {
+        if !variable.defaultValue.isEmpty {
+            return variable.defaultValue
+        }
+
+        switch variable.name.lowercased() {
         case "name":
             return "Name"
         case "week":

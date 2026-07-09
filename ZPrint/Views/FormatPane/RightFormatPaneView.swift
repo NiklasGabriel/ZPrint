@@ -22,7 +22,8 @@ struct RightFormatPaneView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     paneContent
                 }
-                .padding(12)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 14)
             }
             .scrollContentBackground(.hidden)
         }
@@ -37,16 +38,21 @@ struct RightFormatPaneView: View {
 
     private var header: some View {
         HStack {
-            Text(headerTitle)
+            Label(headerTitle, systemImage: headerSystemImage)
                 .font(.system(size: 14, weight: .semibold))
+                .labelStyle(.titleAndIcon)
             Spacer()
             Image(systemName: "slider.horizontal.3")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 12)
-        .frame(height: 39)
-        .background(ZPrintDesign.ColorToken.panelBackground.opacity(0.72))
+        .padding(.horizontal, 14)
+        .frame(height: 42)
+        .background {
+            Rectangle()
+                .fill(ZPrintDesign.ColorToken.panelBackground.opacity(0.82))
+                .shadow(color: .black.opacity(0.035), radius: 5, x: 0, y: 1)
+        }
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(ZPrintDesign.ColorToken.softBorder)
@@ -89,10 +95,51 @@ struct RightFormatPaneView: View {
         }
     }
 
+    private var headerSystemImage: String {
+        if activePage == .preview {
+            return "eye"
+        }
+
+        if activePage == .print {
+            return "printer"
+        }
+
+        if selectedVariableBinding != nil || activePage == .variables {
+            return "curlybraces"
+        }
+
+        if selectedGuideBinding != nil {
+            return "ruler"
+        }
+
+        guard let element = selectedElementBinding?.wrappedValue else {
+            return "doc.text"
+        }
+
+        switch element {
+        case .text:
+            return "textformat"
+        case .barcode:
+            return "barcode"
+        case .shape:
+            return "rectangle"
+        }
+    }
+
     @ViewBuilder
     private var paneContent: some View {
-        if activePage == .preview || activePage == .print {
-            EmptyView()
+        if activePage == .preview {
+            FormatPaneEmptyState(
+                title: "Vorschau aktiv",
+                message: "Die Vorschau nutzt die aktuellen Labeldaten und rendert Variablenwerte ohne Bearbeitungsgriffe.",
+                systemImage: "eye"
+            )
+        } else if activePage == .print {
+            FormatPaneEmptyState(
+                title: "Drucken aktiv",
+                message: "Drucker, ZPL-Export und Raw-Druckauftrag werden im Arbeitsbereich links gesteuert.",
+                systemImage: "printer"
+            )
         } else if let variable = selectedVariableBinding {
             VariableFormatPane(
                 variable: variable,
@@ -264,14 +311,26 @@ struct RightFormatPaneView: View {
     }
 }
 
-extension GuideElement {
-    func clamped(to labelSize: LabelSize) -> GuideElement {
-        var guide = self
-        let maxPosition = guide.orientation == .vertical
-            ? labelSize.widthDots
-            : labelSize.heightDots
-        guide.positionDots = min(max(guide.positionDots, 0), maxPosition)
-        return guide
+private struct FormatPaneEmptyState: View {
+    let title: String
+    let message: String
+    let systemImage: String
+
+    var body: some View {
+        FormatSection(title: title) {
+            VStack(alignment: .leading, spacing: 9) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(ZPrintDesign.ColorToken.secondaryText)
+                    .frame(width: 32, height: 30, alignment: .leading)
+
+                Text(message)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 

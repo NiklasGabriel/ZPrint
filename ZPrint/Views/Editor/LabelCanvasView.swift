@@ -32,7 +32,7 @@ struct LabelCanvasView: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                Color(nsColor: .underPageBackgroundColor)
+                ZPrintDesign.ColorToken.workspaceBackground
                     .contentShape(Rectangle())
                     .onTapGesture {
                         selectedElementID = nil
@@ -78,7 +78,7 @@ struct LabelCanvasView: View {
 
     private func canvasContent(containerSize: CGSize) -> some View {
         let labelSize = scale.size(for: document.label)
-        let variableRailWidth: CGFloat = document.variables.isEmpty ? 0 : 132
+        let variableRailWidth: CGFloat = document.variables.isEmpty ? 0 : 128
         let variableRailSpacing: CGFloat = document.variables.isEmpty ? 0 : 12
 
         return ZStack {
@@ -149,12 +149,13 @@ struct LabelCanvasView: View {
         .frame(width: labelSize.width, height: labelSize.height)
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+                .strokeBorder(ZPrintDesign.ColorToken.softBorder, lineWidth: 1)
         }
         .overlay(alignment: .topLeading) {
             floatingTextFormatBar(labelSize: labelSize)
         }
-        .shadow(color: .black.opacity(0.14), radius: 18, x: 0, y: 8)
+        .shadow(color: .black.opacity(0.10), radius: 22, x: 0, y: 10)
+        .shadow(color: .black.opacity(0.045), radius: 3, x: 0, y: 1)
         .coordinateSpace(name: coordinateSpaceName)
     }
 
@@ -1451,12 +1452,13 @@ private struct ResizeHandleView: View {
     var body: some View {
         Circle()
             .fill(Color(nsColor: .textBackgroundColor))
-            .frame(width: 7, height: 7)
+            .frame(width: 8, height: 8)
             .overlay {
                 Circle()
                     .stroke(Color.accentColor, lineWidth: 1.4)
             }
-            .frame(width: 24, height: 24)
+            .shadow(color: .black.opacity(0.14), radius: 1, x: 0, y: 0.5)
+            .frame(width: 28, height: 28)
             .contentShape(Rectangle())
             .onHover { hovering in
                 if hovering {

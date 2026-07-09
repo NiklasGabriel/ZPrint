@@ -12,14 +12,14 @@ struct PropertyRow<Content: View>: View {
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
             Text(title)
-                .font(.system(size: 12))
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
                 .frame(width: 86, alignment: .leading)
 
             content
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .frame(minHeight: 24)
+        .frame(minHeight: 28)
     }
 }
 
@@ -30,7 +30,7 @@ struct PropertyValueRow: View {
     var body: some View {
         PropertyRow(title: title) {
             Text(value)
-                .font(.system(size: 12))
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.primary)
                 .multilineTextAlignment(.trailing)
                 .monospacedDigit()

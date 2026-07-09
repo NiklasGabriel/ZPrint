@@ -30,7 +30,7 @@ struct ZPrintWorkspaceView: View {
                     previewContext: $previewContext
                 )
             case .print:
-                PrintWorkspaceView(document: document)
+                PrintWorkspaceView(document: $document)
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))

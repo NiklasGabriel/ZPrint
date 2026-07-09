@@ -56,17 +56,18 @@ struct ShapeLabelElement: Codable, Equatable, Identifiable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = ShapeLabelElement()
 
-        id = try container.decode(UUID.self, forKey: .id)
-        name = try container.decode(String.self, forKey: .name)
-        frame = try container.decode(LabelElementFrame.self, forKey: .frame)
-        shape = try container.decode(LabelShapeKind.self, forKey: .shape)
-        strokeWidthDots = try container.decode(Int.self, forKey: .strokeWidthDots)
-        isFilled = try container.decode(Bool.self, forKey: .isFilled)
-        hasStroke = try container.decodeIfPresent(Bool.self, forKey: .hasStroke) ?? true
-        strokeColor = try container.decodeIfPresent(LabelElementColor.self, forKey: .strokeColor) ?? .black
-        fillColor = try container.decodeIfPresent(LabelElementColor.self, forKey: .fillColor) ?? .lightGray
-        rotation = try container.decodeIfPresent(LabelElementRotation.self, forKey: .rotation) ?? .degrees0
+        id = container.decodeOrDefault(UUID.self, forKey: .id, default: fallback.id)
+        name = container.decodeOrDefault(String.self, forKey: .name, default: fallback.name)
+        frame = container.decodeOrDefault(LabelElementFrame.self, forKey: .frame, default: fallback.frame)
+        shape = container.decodeOrDefault(LabelShapeKind.self, forKey: .shape, default: fallback.shape)
+        strokeWidthDots = max(1, container.decodeOrDefault(Int.self, forKey: .strokeWidthDots, default: fallback.strokeWidthDots))
+        isFilled = container.decodeOrDefault(Bool.self, forKey: .isFilled, default: fallback.isFilled)
+        hasStroke = container.decodeOrDefault(Bool.self, forKey: .hasStroke, default: fallback.hasStroke)
+        strokeColor = container.decodeOrDefault(LabelElementColor.self, forKey: .strokeColor, default: fallback.strokeColor)
+        fillColor = container.decodeOrDefault(LabelElementColor.self, forKey: .fillColor, default: fallback.fillColor)
+        rotation = container.decodeOrDefault(LabelElementRotation.self, forKey: .rotation, default: fallback.rotation)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -119,4 +120,36 @@ struct LabelElementColor: Codable, Equatable, Sendable {
 
     static let black = LabelElementColor(red: 0, green: 0, blue: 0, alpha: 0.86)
     static let lightGray = LabelElementColor(red: 0, green: 0, blue: 0, alpha: 0.10)
+
+    init(
+        red: Double,
+        green: Double,
+        blue: Double,
+        alpha: Double
+    ) {
+        self.red = red
+        self.green = green
+        self.blue = blue
+        self.alpha = alpha
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case red
+        case green
+        case blue
+        case alpha
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        red = Self.clampedChannel(container.decodeOrDefault(Double.self, forKey: .red, default: 0))
+        green = Self.clampedChannel(container.decodeOrDefault(Double.self, forKey: .green, default: 0))
+        blue = Self.clampedChannel(container.decodeOrDefault(Double.self, forKey: .blue, default: 0))
+        alpha = Self.clampedChannel(container.decodeOrDefault(Double.self, forKey: .alpha, default: 1))
+    }
+
+    private static func clampedChannel(_ value: Double) -> Double {
+        min(max(value, 0), 1)
+    }
 }

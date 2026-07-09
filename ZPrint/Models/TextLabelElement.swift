@@ -78,20 +78,21 @@ struct TextLabelElement: Codable, Equatable, Identifiable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = TextLabelElement()
 
-        id = try container.decode(UUID.self, forKey: .id)
-        name = try container.decode(String.self, forKey: .name)
-        frame = try container.decode(LabelElementFrame.self, forKey: .frame)
-        text = try container.decode(String.self, forKey: .text)
-        fontFamilyName = try container.decodeIfPresent(String.self, forKey: .fontFamilyName)
+        id = container.decodeOrDefault(UUID.self, forKey: .id, default: fallback.id)
+        name = container.decodeOrDefault(String.self, forKey: .name, default: fallback.name)
+        frame = container.decodeOrDefault(LabelElementFrame.self, forKey: .frame, default: fallback.frame)
+        text = container.decodeOrDefault(String.self, forKey: .text, default: fallback.text)
+        fontFamilyName = (try? container.decodeIfPresent(String.self, forKey: .fontFamilyName))
             ?? TextLabelFontCatalog.systemFamilyName
-        fontSizeDots = try container.decode(Int.self, forKey: .fontSizeDots)
-        isBold = try container.decodeIfPresent(Bool.self, forKey: .isBold) ?? false
-        isItalic = try container.decodeIfPresent(Bool.self, forKey: .isItalic) ?? false
-        isUnderlined = try container.decodeIfPresent(Bool.self, forKey: .isUnderlined) ?? false
-        alignment = try container.decodeIfPresent(TextElementAlignment.self, forKey: .alignment) ?? .left
-        rotation = try container.decodeIfPresent(LabelElementRotation.self, forKey: .rotation) ?? .degrees0
-        variableKey = try container.decodeIfPresent(String.self, forKey: .variableKey)
+        fontSizeDots = max(1, container.decodeOrDefault(Int.self, forKey: .fontSizeDots, default: fallback.fontSizeDots))
+        isBold = container.decodeOrDefault(Bool.self, forKey: .isBold, default: fallback.isBold)
+        isItalic = container.decodeOrDefault(Bool.self, forKey: .isItalic, default: fallback.isItalic)
+        isUnderlined = container.decodeOrDefault(Bool.self, forKey: .isUnderlined, default: fallback.isUnderlined)
+        alignment = container.decodeOrDefault(TextElementAlignment.self, forKey: .alignment, default: fallback.alignment)
+        rotation = container.decodeOrDefault(LabelElementRotation.self, forKey: .rotation, default: fallback.rotation)
+        variableKey = try? container.decodeIfPresent(String.self, forKey: .variableKey)
     }
 
     func encode(to encoder: Encoder) throws {

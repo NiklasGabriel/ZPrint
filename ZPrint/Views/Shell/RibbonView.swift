@@ -26,7 +26,11 @@ struct RibbonView: View {
             .scrollIndicators(.hidden)
             .frame(height: ZPrintDesign.Metric.ribbonContentHeight)
         }
-        .background(ZPrintDesign.ColorToken.ribbonBackground)
+        .background {
+            Rectangle()
+                .fill(ZPrintDesign.ColorToken.ribbonBackground)
+                .shadow(color: .black.opacity(0.035), radius: 8, x: 0, y: 2)
+        }
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(ZPrintDesign.ColorToken.border)

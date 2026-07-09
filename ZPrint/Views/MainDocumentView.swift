@@ -25,7 +25,7 @@ struct MainDocumentView: View {
             selectedElementID: $selectedElementID,
             selectedGuideID: $selectedGuideID
         )
-        .frame(minWidth: 980, minHeight: 640)
+        .frame(minWidth: 1100, minHeight: 660)
         .background(ZPrintDesign.ColorToken.appBackground)
         .background(WindowChromeConfigurator().frame(width: 0, height: 0))
         .background {

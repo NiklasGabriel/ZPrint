@@ -68,16 +68,17 @@ struct BarcodeLabelElement: Codable, Equatable, Identifiable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = BarcodeLabelElement()
 
-        id = try container.decode(UUID.self, forKey: .id)
-        name = try container.decode(String.self, forKey: .name)
-        frame = try container.decode(LabelElementFrame.self, forKey: .frame)
-        symbology = try container.decode(BarcodeSymbology.self, forKey: .symbology)
-        value = try container.decode(String.self, forKey: .value)
-        moduleWidth = try container.decodeIfPresent(Int.self, forKey: .moduleWidth) ?? 2
-        showsHumanReadableText = try container.decode(Bool.self, forKey: .showsHumanReadableText)
-        rotation = try container.decodeIfPresent(LabelElementRotation.self, forKey: .rotation) ?? .degrees0
-        variableKey = try container.decodeIfPresent(String.self, forKey: .variableKey)
+        id = container.decodeOrDefault(UUID.self, forKey: .id, default: fallback.id)
+        name = container.decodeOrDefault(String.self, forKey: .name, default: fallback.name)
+        frame = container.decodeOrDefault(LabelElementFrame.self, forKey: .frame, default: fallback.frame)
+        symbology = container.decodeOrDefault(BarcodeSymbology.self, forKey: .symbology, default: fallback.symbology)
+        value = container.decodeOrDefault(String.self, forKey: .value, default: fallback.value)
+        moduleWidth = max(1, container.decodeOrDefault(Int.self, forKey: .moduleWidth, default: fallback.moduleWidth))
+        showsHumanReadableText = container.decodeOrDefault(Bool.self, forKey: .showsHumanReadableText, default: fallback.showsHumanReadableText)
+        rotation = container.decodeOrDefault(LabelElementRotation.self, forKey: .rotation, default: fallback.rotation)
+        variableKey = try? container.decodeIfPresent(String.self, forKey: .variableKey)
     }
 
     func encode(to encoder: Encoder) throws {

@@ -41,15 +41,16 @@ struct GuideElement: Codable, Equatable, Identifiable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = GuideElement()
 
-        id = try container.decode(UUID.self, forKey: .id)
-        orientation = try container.decode(GuideOrientation.self, forKey: .orientation)
-        positionDots = try container.decodeIfPresent(Int.self, forKey: .positionDots) ?? 0
-        locked = try container.decodeIfPresent(Bool.self, forKey: .locked)
-            ?? container.decodeIfPresent(Bool.self, forKey: .isLocked)
-            ?? false
-        visible = try container.decodeIfPresent(Bool.self, forKey: .visible) ?? true
-        name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Hilfslinie"
+        id = container.decodeOrDefault(UUID.self, forKey: .id, default: fallback.id)
+        orientation = container.decodeOrDefault(GuideOrientation.self, forKey: .orientation, default: fallback.orientation)
+        positionDots = max(0, container.decodeOrDefault(Int.self, forKey: .positionDots, default: fallback.positionDots))
+        locked = (try? container.decodeIfPresent(Bool.self, forKey: .locked))
+            ?? (try? container.decodeIfPresent(Bool.self, forKey: .isLocked))
+            ?? fallback.locked
+        visible = container.decodeOrDefault(Bool.self, forKey: .visible, default: fallback.visible)
+        name = container.decodeOrDefault(String.self, forKey: .name, default: fallback.name)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -61,6 +62,15 @@ struct GuideElement: Codable, Equatable, Identifiable, Sendable {
         try container.encode(locked, forKey: .locked)
         try container.encode(visible, forKey: .visible)
         try container.encode(name, forKey: .name)
+    }
+
+    func clamped(to labelSize: LabelSize) -> GuideElement {
+        var guide = self
+        let maxPosition = guide.orientation == .vertical
+            ? labelSize.widthDots
+            : labelSize.heightDots
+        guide.positionDots = min(max(guide.positionDots, 0), maxPosition)
+        return guide
     }
 }
 

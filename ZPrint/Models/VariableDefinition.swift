@@ -97,19 +97,19 @@ struct VariableDefinition: Codable, Equatable, Identifiable, Sendable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        id = try container.decode(UUID.self, forKey: .id)
-        name = try container.decodeIfPresent(String.self, forKey: .name)
-            ?? container.decodeIfPresent(String.self, forKey: .key)
-            ?? container.decodeIfPresent(String.self, forKey: .displayName)
+        id = container.decodeOrDefault(UUID.self, forKey: .id, default: UUID())
+        name = (try? container.decodeIfPresent(String.self, forKey: .name))
+            ?? (try? container.decodeIfPresent(String.self, forKey: .key))
+            ?? (try? container.decodeIfPresent(String.self, forKey: .displayName))
             ?? "variable"
-        type = try container.decodeIfPresent(VariableType.self, forKey: .type)
-            ?? VariableType(legacyValueType: container.decodeIfPresent(LegacyVariableValueType.self, forKey: .valueType))
-        defaultValue = try container.decodeIfPresent(String.self, forKey: .defaultValue) ?? ""
-        format = try container.decodeIfPresent(String.self, forKey: .format) ?? ""
-        prefix = try container.decodeIfPresent(String.self, forKey: .prefix) ?? ""
-        startValue = try container.decodeIfPresent(Int.self, forKey: .startValue) ?? 1
-        endValue = try container.decodeIfPresent(Int.self, forKey: .endValue) ?? 1
-        step = try container.decodeIfPresent(Int.self, forKey: .step) ?? 1
+        type = (try? container.decodeIfPresent(VariableType.self, forKey: .type))
+            ?? VariableType(legacyValueType: (try? container.decodeIfPresent(LegacyVariableValueType.self, forKey: .valueType)) ?? nil)
+        defaultValue = container.decodeOrDefault(String.self, forKey: .defaultValue, default: "")
+        format = container.decodeOrDefault(String.self, forKey: .format, default: "")
+        prefix = container.decodeOrDefault(String.self, forKey: .prefix, default: "")
+        startValue = max(1, container.decodeOrDefault(Int.self, forKey: .startValue, default: 1))
+        endValue = max(1, container.decodeOrDefault(Int.self, forKey: .endValue, default: 1))
+        step = max(1, container.decodeOrDefault(Int.self, forKey: .step, default: 1))
     }
 
     func encode(to encoder: Encoder) throws {

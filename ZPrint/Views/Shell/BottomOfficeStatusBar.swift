@@ -9,8 +9,9 @@ struct BottomOfficeStatusBar: View {
     @Binding var document: ZPrintDocument
 
     var body: some View {
-        HStack(spacing: 12) {
-            Text(document.label.name)
+        HStack(spacing: 10) {
+            Label(document.label.name, systemImage: "tag")
+                .labelStyle(.titleAndIcon)
             separator
             Text("\(document.label.dotsPerInch) dpi")
             separator
@@ -22,13 +23,17 @@ struct BottomOfficeStatusBar: View {
             Spacer(minLength: 18)
 
             ZoomControl(zoomScale: zoomBinding)
-                .frame(width: 240)
+                .frame(width: 228)
         }
         .font(.system(size: 11, weight: .medium))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 14)
         .frame(height: ZPrintDesign.Metric.statusBarHeight)
-        .background(ZPrintDesign.ColorToken.panelBackground)
+        .background {
+            Rectangle()
+                .fill(ZPrintDesign.ColorToken.panelBackground)
+                .shadow(color: .black.opacity(0.035), radius: 5, x: 0, y: -1)
+        }
         .overlay(alignment: .top) {
             Rectangle()
                 .fill(ZPrintDesign.ColorToken.softBorder)

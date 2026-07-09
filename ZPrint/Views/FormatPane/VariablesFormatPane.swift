@@ -18,7 +18,7 @@ struct VariablesFormatPane: View {
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.secondary)
 
-                        Text("Lege eine Variable an, um sie in Text- oder Barcodefeldern zu verwenden.")
+                        Text("Variablen können später in Text- und Barcodewerte eingefügt werden.")
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -47,8 +47,10 @@ struct VariablesFormatPane: View {
             FormatSection(title: "Aktionen") {
                 Button(action: addVariable) {
                     Label("Variable anlegen", systemImage: "plus")
+                        .frame(maxWidth: .infinity)
                 }
                 .controlSize(.small)
+                .buttonStyle(.bordered)
             }
 
             FormatSection(title: "Hinweis") {

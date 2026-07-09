@@ -735,14 +735,14 @@ struct VariableChipView: View {
             }
         }
         .padding(.horizontal, isCompact ? 7 : 8)
-        .padding(.vertical, isCompact ? 3 : 4)
+        .padding(.vertical, isCompact ? 4 : 5)
         .background {
             Capsule()
-                .fill(isSelected ? Color.accentColor.opacity(0.18) : Color(nsColor: .controlAccentColor).opacity(0.10))
+                .fill(isSelected ? ZPrintDesign.ColorToken.selectedFill : Color(nsColor: .controlBackgroundColor).opacity(0.78))
         }
         .overlay {
             Capsule()
-                .stroke(isSelected ? Color.accentColor.opacity(0.38) : Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 1)
+                .stroke(isSelected ? ZPrintDesign.ColorToken.accent.opacity(0.38) : ZPrintDesign.ColorToken.softBorder, lineWidth: 1)
         }
         .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
     }

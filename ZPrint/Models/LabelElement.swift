@@ -112,6 +112,34 @@ struct LabelElementFrame: Codable, Equatable, Sendable {
         heightDots: 0
     )
 
+    private enum CodingKeys: String, CodingKey {
+        case xDots
+        case yDots
+        case widthDots
+        case heightDots
+    }
+
+    init(
+        xDots: Int,
+        yDots: Int,
+        widthDots: Int,
+        heightDots: Int
+    ) {
+        self.xDots = xDots
+        self.yDots = yDots
+        self.widthDots = widthDots
+        self.heightDots = heightDots
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        xDots = container.decodeOrDefault(Int.self, forKey: .xDots, default: 0)
+        yDots = container.decodeOrDefault(Int.self, forKey: .yDots, default: 0)
+        widthDots = max(0, container.decodeOrDefault(Int.self, forKey: .widthDots, default: 0))
+        heightDots = max(0, container.decodeOrDefault(Int.self, forKey: .heightDots, default: 0))
+    }
+
     func clamped(to labelSize: LabelSize) -> LabelElementFrame {
         let maxX = max(0, labelSize.widthDots - widthDots)
         let maxY = max(0, labelSize.heightDots - heightDots)
@@ -139,7 +167,7 @@ struct LabelElementRotation: Codable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
-        degrees = Self.normalized(try container.decode(Int.self))
+        degrees = Self.normalized((try? container.decode(Int.self)) ?? 0)
     }
 
     func encode(to encoder: Encoder) throws {

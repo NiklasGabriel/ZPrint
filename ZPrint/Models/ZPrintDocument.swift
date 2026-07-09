@@ -55,6 +55,46 @@ struct ZPrintDocument: FileDocument, Codable, Equatable, Sendable {
         self = try JSONDecoder.zprint.decode(ZPrintDocument.self, from: data)
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case fileVersion
+        case documentName
+        case labelSizeId
+        case label
+        case elements
+        case variables
+        case guides
+        case printSettings
+        case viewSettings
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let standardDocument = Self.standardNewDocument()
+
+        fileVersion = container.decodeOrDefault(Int.self, forKey: .fileVersion, default: standardDocument.fileVersion)
+        documentName = container.decodeOrDefault(String.self, forKey: .documentName, default: standardDocument.documentName)
+
+        let decodedLabelSizeId = container.decodeOrDefault(
+            String.self,
+            forKey: .labelSizeId,
+            default: standardDocument.labelSizeId
+        )
+        let decodedLabel = (try? container.decodeIfPresent(LabelSize.self, forKey: .label))
+            ?? LabelSize.standardSizes.first { $0.id == decodedLabelSizeId }
+            ?? standardDocument.label
+
+        label = decodedLabel
+        labelSizeId = decodedLabel.id
+        elements = container.decodeLossyArray([LabelElement].self, forKey: .elements)
+            .map { $0.replacingFrame($0.frame.clamped(to: decodedLabel)) }
+        variables = container.decodeLossyArray([VariableDefinition].self, forKey: .variables)
+        guides = container.decodeLossyArray([GuideElement].self, forKey: .guides)
+            .map { $0.clamped(to: decodedLabel) }
+        printSettings = container.decodeOrDefault(PrintSettings.self, forKey: .printSettings, default: standardDocument.printSettings)
+            .normalized(for: variables)
+        viewSettings = container.decodeOrDefault(ViewSettings.self, forKey: .viewSettings, default: standardDocument.viewSettings)
+    }
+
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         let data = try JSONEncoder.zprint.encode(self)
         return FileWrapper(regularFileWithContents: data)

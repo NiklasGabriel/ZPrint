@@ -16,7 +16,7 @@ struct ZPrintApp: App {
                 fileURL: file.fileURL
             )
         }
-        .defaultSize(width: 1200, height: 800)
+        .defaultSize(width: 1280, height: 820)
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unifiedCompact)
     }

@@ -14,32 +14,42 @@ struct ZoomControl: View {
                 zoomScale = max(0.25, zoomScale - 0.10)
             } label: {
                 Image(systemName: "minus")
-                    .frame(width: 18, height: 18)
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(width: 24, height: 22)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .help("Verkleinern")
 
             Slider(value: $zoomScale, in: 0.25...3.0, step: 0.05)
-                .frame(width: 96)
+                .frame(width: 94)
 
             Text(zoomText)
-                .font(.caption.monospacedDigit())
+                .font(.system(size: 11, weight: .medium, design: .rounded).monospacedDigit())
                 .foregroundStyle(.secondary)
-                .frame(width: 40, alignment: .trailing)
+                .frame(width: 42, alignment: .trailing)
 
             Button {
                 zoomScale = min(3.0, zoomScale + 0.10)
             } label: {
                 Image(systemName: "plus")
-                    .frame(width: 18, height: 18)
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(width: 24, height: 22)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .help("Vergrößern")
         }
         .controlSize(.mini)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
         .background {
             Capsule()
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.76))
+        }
+        .overlay {
+            Capsule()
+                .stroke(ZPrintDesign.ColorToken.hairline, lineWidth: 1)
         }
         .help("Zoom")
     }

@@ -8,15 +8,24 @@ import Foundation
 struct PrintSettings: Codable, Equatable, Sendable {
     var counterStart: Int
     var counterEnd: Int
+    var numberFormat: String
+    var copiesPerNumber: Int
+    var selectedPrinterName: String?
     var variableRanges: [PrintVariableRange]
 
     init(
         counterStart: Int = 1,
         counterEnd: Int = 1,
+        numberFormat: String = "00000",
+        copiesPerNumber: Int = 1,
+        selectedPrinterName: String? = nil,
         variableRanges: [PrintVariableRange] = []
     ) {
         self.counterStart = max(1, counterStart)
         self.counterEnd = max(1, counterEnd)
+        self.numberFormat = numberFormat
+        self.copiesPerNumber = max(1, copiesPerNumber)
+        self.selectedPrinterName = selectedPrinterName
         self.variableRanges = variableRanges.map(\.clamped)
     }
 
@@ -25,15 +34,21 @@ struct PrintSettings: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case counterStart
         case counterEnd
+        case numberFormat
+        case copiesPerNumber
+        case selectedPrinterName
         case variableRanges
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        counterStart = max(1, try container.decodeIfPresent(Int.self, forKey: .counterStart) ?? 1)
-        counterEnd = max(1, try container.decodeIfPresent(Int.self, forKey: .counterEnd) ?? 1)
-        variableRanges = try container.decodeIfPresent([PrintVariableRange].self, forKey: .variableRanges) ?? []
+        counterStart = max(1, container.decodeOrDefault(Int.self, forKey: .counterStart, default: 1))
+        counterEnd = max(1, container.decodeOrDefault(Int.self, forKey: .counterEnd, default: 1))
+        numberFormat = container.decodeOrDefault(String.self, forKey: .numberFormat, default: "00000")
+        copiesPerNumber = max(1, container.decodeOrDefault(Int.self, forKey: .copiesPerNumber, default: 1))
+        selectedPrinterName = try? container.decodeIfPresent(String.self, forKey: .selectedPrinterName)
+        variableRanges = container.decodeLossyArray([PrintVariableRange].self, forKey: .variableRanges)
         variableRanges = variableRanges.map(\.clamped)
     }
 
@@ -42,6 +57,9 @@ struct PrintSettings: Codable, Equatable, Sendable {
 
         try container.encode(counterStart, forKey: .counterStart)
         try container.encode(counterEnd, forKey: .counterEnd)
+        try container.encode(numberFormat, forKey: .numberFormat)
+        try container.encode(copiesPerNumber, forKey: .copiesPerNumber)
+        try container.encodeIfPresent(selectedPrinterName, forKey: .selectedPrinterName)
         try container.encode(variableRanges.map(\.clamped), forKey: .variableRanges)
     }
 
@@ -69,6 +87,9 @@ struct PrintSettings: Codable, Equatable, Sendable {
         return PrintSettings(
             counterStart: counterStart,
             counterEnd: counterEnd,
+            numberFormat: numberFormat,
+            copiesPerNumber: copiesPerNumber,
+            selectedPrinterName: selectedPrinterName,
             variableRanges: normalizedRanges
         )
     }
@@ -95,6 +116,24 @@ struct PrintVariableRange: Codable, Equatable, Identifiable, Sendable {
         self.startValue = startValue
         self.endValue = endValue
         self.copiesPerValue = copiesPerValue
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case variableID
+        case variableName
+        case startValue
+        case endValue
+        case copiesPerValue
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        variableID = container.decodeOrDefault(UUID.self, forKey: .variableID, default: UUID())
+        variableName = container.decodeOrDefault(String.self, forKey: .variableName, default: "number")
+        startValue = max(1, container.decodeOrDefault(Int.self, forKey: .startValue, default: 1))
+        endValue = max(startValue, container.decodeOrDefault(Int.self, forKey: .endValue, default: startValue))
+        copiesPerValue = max(1, container.decodeOrDefault(Int.self, forKey: .copiesPerValue, default: 1))
     }
 
     var clamped: PrintVariableRange {

@@ -56,16 +56,17 @@ struct LabelSize: Codable, Equatable, Identifiable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = Self.standard51x25mm300dpi
 
-        id = try container.decode(String.self, forKey: .id)
-        name = try container.decode(String.self, forKey: .name)
-        widthMillimeters = try container.decode(Double.self, forKey: .widthMillimeters)
-        heightMillimeters = try container.decode(Double.self, forKey: .heightMillimeters)
-        dotsPerInch = try container.decode(Int.self, forKey: .dotsPerInch)
-        widthDots = try container.decode(Int.self, forKey: .widthDots)
-        heightDots = try container.decode(Int.self, forKey: .heightDots)
-        isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
-        isInStock = try container.decodeIfPresent(Bool.self, forKey: .isInStock) ?? true
+        id = container.decodeOrDefault(String.self, forKey: .id, default: fallback.id)
+        name = container.decodeOrDefault(String.self, forKey: .name, default: fallback.name)
+        widthMillimeters = container.decodeOrDefault(Double.self, forKey: .widthMillimeters, default: fallback.widthMillimeters)
+        heightMillimeters = container.decodeOrDefault(Double.self, forKey: .heightMillimeters, default: fallback.heightMillimeters)
+        dotsPerInch = max(1, container.decodeOrDefault(Int.self, forKey: .dotsPerInch, default: fallback.dotsPerInch))
+        widthDots = max(1, container.decodeOrDefault(Int.self, forKey: .widthDots, default: fallback.widthDots))
+        heightDots = max(1, container.decodeOrDefault(Int.self, forKey: .heightDots, default: fallback.heightDots))
+        isFavorite = container.decodeOrDefault(Bool.self, forKey: .isFavorite, default: false)
+        isInStock = container.decodeOrDefault(Bool.self, forKey: .isInStock, default: true)
     }
 
     static let standard51x25mm300dpi = LabelSize(
