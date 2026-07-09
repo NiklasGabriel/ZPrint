@@ -165,6 +165,7 @@ struct AppShellView: View {
             name: textElement.name,
             frame: textElement.frame.clamped(to: document.label),
             text: textElement.text,
+            fontFamilyName: textElement.fontFamilyName,
             fontSizeDots: textElement.fontSizeDots,
             isBold: textElement.isBold,
             isItalic: textElement.isItalic,

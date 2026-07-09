@@ -23,7 +23,7 @@ struct BarcodeLabelElement: Codable, Equatable, Identifiable, Sendable {
         symbology: BarcodeSymbology = .code128,
         value: String = "",
         moduleWidth: Int = 2,
-        showsHumanReadableText: Bool = true,
+        showsHumanReadableText: Bool = false,
         rotation: LabelElementRotation = .degrees0,
         variableKey: String? = nil
     ) {
@@ -50,7 +50,7 @@ struct BarcodeLabelElement: Codable, Equatable, Identifiable, Sendable {
             symbology: .code128,
             value: "",
             moduleWidth: 2,
-            showsHumanReadableText: true
+            showsHumanReadableText: false
         )
     }
 
@@ -76,7 +76,7 @@ struct BarcodeLabelElement: Codable, Equatable, Identifiable, Sendable {
         value = try container.decode(String.self, forKey: .value)
         moduleWidth = try container.decodeIfPresent(Int.self, forKey: .moduleWidth) ?? 2
         showsHumanReadableText = try container.decode(Bool.self, forKey: .showsHumanReadableText)
-        rotation = try container.decode(LabelElementRotation.self, forKey: .rotation)
+        rotation = try container.decodeIfPresent(LabelElementRotation.self, forKey: .rotation) ?? .degrees0
         variableKey = try container.decodeIfPresent(String.self, forKey: .variableKey)
     }
 

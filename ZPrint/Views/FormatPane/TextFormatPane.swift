@@ -15,7 +15,11 @@ struct TextFormatPane: View {
         VStack(alignment: .leading, spacing: 12) {
             FormatSection(title: "Text formatieren") {
                 TextEditor(text: $element.text)
-                    .font(.system(size: 12))
+                    .font(TextLabelFontCatalog.swiftUIFont(
+                        familyName: element.fontFamilyName,
+                        size: 12,
+                        isBold: element.isBold
+                    ))
                     .frame(minHeight: 76)
                     .padding(4)
                     .overlay {
@@ -29,6 +33,18 @@ struct TextFormatPane: View {
             }
 
             FormatSection(title: "Typografie") {
+                PropertyRow(title: "Schrift") {
+                    Picker("Schrift", selection: $element.fontFamilyName) {
+                        ForEach(TextLabelFontCatalog.fontFamilyNames, id: \.self) { familyName in
+                            Text(TextLabelFontCatalog.displayName(for: familyName))
+                                .tag(familyName)
+                        }
+                    }
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .frame(width: 174)
+                }
+
                 IntegerPropertyField(title: "Größe", value: clampedBinding(\.fontSizeDots, 6...200))
 
                 PropertyRow(title: "Stil") {
@@ -67,6 +83,7 @@ struct TextFormatPane: View {
                 IntegerPropertyField(title: "Y", value: frameBinding(\.yDots))
                 IntegerPropertyField(title: "Breite", value: frameBinding(\.widthDots, minimum: 1))
                 IntegerPropertyField(title: "Höhe", value: frameBinding(\.heightDots, minimum: 1))
+                IntegerPropertyField(title: "Drehung", value: rotationBinding)
             }
 
             FormatSection(title: "Aktionen") {
@@ -78,13 +95,13 @@ struct TextFormatPane: View {
         }
     }
 
-    private func frameBinding(_ keyPath: WritableKeyPath<LabelElementFrame, Int>, minimum: Int = 0) -> Binding<Int> {
+    private func frameBinding(_ keyPath: WritableKeyPath<LabelElementFrame, Int>, minimum: Int = Int.min) -> Binding<Int> {
         Binding(
             get: { element.frame[keyPath: keyPath] },
             set: { newValue in
                 var frame = element.frame
                 frame[keyPath: keyPath] = max(minimum, newValue)
-                element.frame = frame.clamped(to: labelSize)
+                element.frame = frame
             }
         )
     }
@@ -93,6 +110,13 @@ struct TextFormatPane: View {
         Binding(
             get: { element[keyPath: keyPath] },
             set: { element[keyPath: keyPath] = min(max($0, range.lowerBound), range.upperBound) }
+        )
+    }
+
+    private var rotationBinding: Binding<Int> {
+        Binding(
+            get: { element.rotation.degrees },
+            set: { element.rotation = LabelElementRotation(degrees: $0) }
         )
     }
 }

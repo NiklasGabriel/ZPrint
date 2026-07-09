@@ -10,6 +10,7 @@ struct TextLabelElement: Codable, Equatable, Identifiable, Sendable {
     var name: String
     var frame: LabelElementFrame
     var text: String
+    var fontFamilyName: String
     var fontSizeDots: Int
     var isBold: Bool
     var isItalic: Bool
@@ -23,6 +24,7 @@ struct TextLabelElement: Codable, Equatable, Identifiable, Sendable {
         name: String = "Text",
         frame: LabelElementFrame = .zero,
         text: String = "",
+        fontFamilyName: String = TextLabelFontCatalog.systemFamilyName,
         fontSizeDots: Int = 32,
         isBold: Bool = false,
         isItalic: Bool = false,
@@ -35,6 +37,7 @@ struct TextLabelElement: Codable, Equatable, Identifiable, Sendable {
         self.name = name
         self.frame = frame
         self.text = text
+        self.fontFamilyName = fontFamilyName
         self.fontSizeDots = fontSizeDots
         self.isBold = isBold
         self.isItalic = isItalic
@@ -63,6 +66,7 @@ struct TextLabelElement: Codable, Equatable, Identifiable, Sendable {
         case name
         case frame
         case text
+        case fontFamilyName
         case fontSizeDots
         case isBold
         case isItalic
@@ -79,12 +83,14 @@ struct TextLabelElement: Codable, Equatable, Identifiable, Sendable {
         name = try container.decode(String.self, forKey: .name)
         frame = try container.decode(LabelElementFrame.self, forKey: .frame)
         text = try container.decode(String.self, forKey: .text)
+        fontFamilyName = try container.decodeIfPresent(String.self, forKey: .fontFamilyName)
+            ?? TextLabelFontCatalog.systemFamilyName
         fontSizeDots = try container.decode(Int.self, forKey: .fontSizeDots)
         isBold = try container.decodeIfPresent(Bool.self, forKey: .isBold) ?? false
         isItalic = try container.decodeIfPresent(Bool.self, forKey: .isItalic) ?? false
         isUnderlined = try container.decodeIfPresent(Bool.self, forKey: .isUnderlined) ?? false
         alignment = try container.decodeIfPresent(TextElementAlignment.self, forKey: .alignment) ?? .left
-        rotation = try container.decode(LabelElementRotation.self, forKey: .rotation)
+        rotation = try container.decodeIfPresent(LabelElementRotation.self, forKey: .rotation) ?? .degrees0
         variableKey = try container.decodeIfPresent(String.self, forKey: .variableKey)
     }
 
@@ -95,6 +101,7 @@ struct TextLabelElement: Codable, Equatable, Identifiable, Sendable {
         try container.encode(name, forKey: .name)
         try container.encode(frame, forKey: .frame)
         try container.encode(text, forKey: .text)
+        try container.encode(fontFamilyName, forKey: .fontFamilyName)
         try container.encode(fontSizeDots, forKey: .fontSizeDots)
         try container.encode(isBold, forKey: .isBold)
         try container.encode(isItalic, forKey: .isItalic)

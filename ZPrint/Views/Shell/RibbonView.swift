@@ -68,39 +68,46 @@ struct RibbonView: View {
 
             RibbonGroupView(title: "Text") {
                 VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: 4) {
-                        RibbonTextToggleButton(
-                            title: "B",
-                            style: .bold,
-                            isSelected: selectedText?.isBold ?? false,
-                            isDisabled: selectedTextBinding == nil
-                        ) {
-                            selectedTextBinding?.wrappedValue.isBold.toggle()
-                        }
-                        RibbonTextToggleButton(
-                            title: "I",
-                            style: .italic,
-                            isSelected: selectedText?.isItalic ?? false,
-                            isDisabled: selectedTextBinding == nil
-                        ) {
-                            selectedTextBinding?.wrappedValue.isItalic.toggle()
-                        }
-                        RibbonTextToggleButton(
-                            title: "U",
-                            style: .underline,
-                            isSelected: selectedText?.isUnderlined ?? false,
-                            isDisabled: selectedTextBinding == nil
-                        ) {
-                            selectedTextBinding?.wrappedValue.isUnderlined.toggle()
-                        }
-                    }
-
-                    RibbonFontSizeControl(
-                        value: fontSizeBinding,
-                        displayedValue: selectedText?.fontSizeDots ?? 0,
+                    RibbonFontFamilyPicker(
+                        selection: fontFamilyBinding,
                         isDisabled: selectedTextBinding == nil
                     )
+
+                    HStack(spacing: 8) {
+                        HStack(spacing: 4) {
+                            RibbonTextToggleButton(
+                                title: "B",
+                                style: .bold,
+                                isSelected: selectedText?.isBold ?? false,
+                                isDisabled: selectedTextBinding == nil
+                            ) {
+                                selectedTextBinding?.wrappedValue.isBold.toggle()
+                            }
+                            RibbonTextToggleButton(
+                                title: "I",
+                                style: .italic,
+                                isSelected: selectedText?.isItalic ?? false,
+                                isDisabled: selectedTextBinding == nil
+                            ) {
+                                selectedTextBinding?.wrappedValue.isItalic.toggle()
+                            }
+                            RibbonTextToggleButton(
+                                title: "U",
+                                style: .underline,
+                                isSelected: selectedText?.isUnderlined ?? false,
+                                isDisabled: selectedTextBinding == nil
+                            ) {
+                                selectedTextBinding?.wrappedValue.isUnderlined.toggle()
+                            }
+                        }
+
+                        RibbonFontSizeControl(
+                            value: fontSizeBinding,
+                            isDisabled: selectedTextBinding == nil
+                        )
+                    }
                 }
+                .frame(width: 196, alignment: .leading)
             }
 
             RibbonGroupView(title: "Ausrichten") {
@@ -397,6 +404,13 @@ struct RibbonView: View {
         )
     }
 
+    private var fontFamilyBinding: Binding<String> {
+        Binding(
+            get: { selectedTextBinding?.wrappedValue.fontFamilyName ?? TextLabelFontCatalog.systemFamilyName },
+            set: { selectedTextBinding?.wrappedValue.fontFamilyName = $0 }
+        )
+    }
+
     private var canInsertVariable: Bool {
         selectedTextBinding != nil || selectedBarcodeBinding != nil
     }
@@ -519,11 +533,11 @@ private struct PrintRangeNumberField: View {
                 .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(.secondary)
 
-            TextField(title, value: $value, format: .number)
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.small)
-                .frame(width: title == "je Wert" ? 58 : 50)
-                .monospacedDigit()
+            ZPrintNumberStepperField(
+                title: title,
+                value: $value,
+                width: title == "je Wert" ? 112 : 96
+            )
         }
     }
 }
@@ -532,6 +546,26 @@ private enum RibbonTextToggleStyle {
     case bold
     case italic
     case underline
+}
+
+private struct RibbonFontFamilyPicker: View {
+    @Binding var selection: String
+    var isDisabled = false
+
+    var body: some View {
+        Picker("Schrift", selection: $selection) {
+            ForEach(TextLabelFontCatalog.fontFamilyNames, id: \.self) { familyName in
+                Text(TextLabelFontCatalog.displayName(for: familyName))
+                    .tag(familyName)
+            }
+        }
+        .labelsHidden()
+        .controlSize(.small)
+        .frame(width: 196)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.45 : 1)
+        .help("Schriftart")
+    }
 }
 
 private struct RibbonTextToggleButton: View {
@@ -578,45 +612,15 @@ private struct RibbonTextToggleButton: View {
 
 private struct RibbonFontSizeControl: View {
     @Binding var value: Int
-    let displayedValue: Int
     var isDisabled = false
 
     var body: some View {
-        HStack(spacing: 2) {
-            Button {
-                value -= 1
-            } label: {
-                Image(systemName: "minus")
-                    .frame(width: 22, height: 24)
-            }
-            .buttonStyle(.plain)
-
-            Text("\(displayedValue)")
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-                .frame(width: 34)
-
-            Button {
-                value += 1
-            } label: {
-                Image(systemName: "plus")
-                    .frame(width: 22, height: 24)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 3)
-        .frame(height: ZPrintDesign.Metric.buttonHeight)
-        .background {
-            Capsule()
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.72))
-        }
-        .overlay {
-            Capsule()
-                .stroke(ZPrintDesign.ColorToken.softBorder, lineWidth: 1)
-        }
-        .disabled(isDisabled)
-        .opacity(isDisabled ? 0.45 : 1)
-        .help("Schriftgröße")
+        ZPrintNumberStepperField(
+            title: "Schriftgröße",
+            value: $value,
+            width: 106,
+            isDisabled: isDisabled
+        )
     }
 }
 

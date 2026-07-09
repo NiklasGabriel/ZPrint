@@ -44,12 +44,11 @@ struct IntegerPropertyField: View {
 
     var body: some View {
         PropertyRow(title: title) {
-            TextField(title, value: $value, format: .number)
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.small)
-                .multilineTextAlignment(.trailing)
-                .monospacedDigit()
-                .frame(maxWidth: 112)
+            ZPrintNumberStepperField(
+                title: title,
+                value: $value,
+                width: 116
+            )
         }
     }
 }

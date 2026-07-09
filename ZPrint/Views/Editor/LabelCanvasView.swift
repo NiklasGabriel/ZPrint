@@ -18,11 +18,16 @@ struct LabelCanvasView: View {
     @State private var editingTextElementID: UUID?
     @State private var keyboardFocusToken = UUID()
     @State private var zoomGestureStart: Double?
+    @State private var undoStack: [DocumentEditSnapshot] = []
+    @State private var redoStack: [DocumentEditSnapshot] = []
 
     private let coordinateSpaceName = "labelCanvas"
     private let minimumElementWidthDots = 12
     private let minimumElementHeightDots = 12
     private let snapToleranceDots = 6
+    private let maximumUndoSnapshots = 80
+    private let elementPasteboardType = NSPasteboard.PasteboardType("com.zprint.label-element")
+    private let guidePasteboardType = NSPasteboard.PasteboardType("com.zprint.guide-element")
 
     var body: some View {
         GeometryReader { proxy in
@@ -47,7 +52,13 @@ struct LabelCanvasView: View {
                 CanvasKeyEventHandler(
                     focusToken: keyboardFocusToken,
                     onDelete: deleteSelectedElement,
-                    onDuplicate: duplicateSelectedElement
+                    onDuplicate: duplicateSelectedElement,
+                    onCopy: copySelectedElement,
+                    onCut: cutSelectedElement,
+                    onPaste: pasteElement,
+                    onUndo: undoLastEdit,
+                    onRedo: redoLastEdit,
+                    onMoveSelection: moveSelectedCanvasObject
                 )
                 .frame(width: 0, height: 0)
             }
@@ -136,7 +147,6 @@ struct LabelCanvasView: View {
             }
         }
         .frame(width: labelSize.width, height: labelSize.height)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
@@ -203,6 +213,7 @@ struct LabelCanvasView: View {
             }
         }
         .frame(width: max(1, rect.width), height: max(1, rect.height))
+        .rotationEffect(.degrees(Double(element.rotation.degrees)))
         .position(x: rect.midX, y: rect.midY)
         .zIndex(selectedElementID == element.id ? 12 : 10)
     }
@@ -347,6 +358,7 @@ struct LabelCanvasView: View {
         DragGesture(minimumDistance: 2, coordinateSpace: .named(coordinateSpaceName))
             .onChanged { value in
                 if activeDrag?.id != element.id {
+                    pushUndoSnapshot()
                     activeDrag = ElementDragState(
                         id: element.id,
                         originalFrame: currentFrame(for: element.id) ?? element.frame
@@ -368,11 +380,14 @@ struct LabelCanvasView: View {
                 var nextFrame = activeDrag.originalFrame
                 nextFrame.xDots += deltaX
                 nextFrame.yDots += deltaY
-                let clampedFrame = nextFrame.clamped(to: document.label)
 
                 updateElementFrame(
                     id: element.id,
-                    frame: snappedFrameForMoving(clampedFrame, excluding: element.id)
+                    frame: snappedFrameForMoving(
+                        nextFrame,
+                        element: element,
+                        excluding: element.id
+                    )
                 )
             }
             .onEnded { _ in
@@ -384,6 +399,7 @@ struct LabelCanvasView: View {
         DragGesture(minimumDistance: 0, coordinateSpace: .named(coordinateSpaceName))
             .onChanged { value in
                 if activeResize?.id != element.id || activeResize?.handle != handle {
+                    pushUndoSnapshot()
                     activeResize = ElementResizeState(
                         id: element.id,
                         handle: handle,
@@ -401,21 +417,28 @@ struct LabelCanvasView: View {
                     return
                 }
 
-                let deltaX = scale.dots(fromPoints: value.translation.width)
-                let deltaY = scale.dots(fromPoints: value.translation.height)
+                let rawDeltaX = scale.dots(fromPoints: value.translation.width)
+                let rawDeltaY = scale.dots(fromPoints: value.translation.height)
+                let localDelta = localResizeDelta(
+                    xDots: rawDeltaX,
+                    yDots: rawDeltaY,
+                    rotation: element.rotation
+                )
                 let nextFrame = resizedFrame(
                     from: activeResize.originalFrame,
                     element: element,
                     handle: handle,
-                    deltaX: deltaX,
-                    deltaY: deltaY
+                    deltaX: localDelta.xDots,
+                    deltaY: localDelta.yDots
                 )
 
                 updateElementFrame(
                     id: element.id,
                     frame: snappedFrameForResizing(
                         nextFrame,
+                        originalFrame: activeResize.originalFrame,
                         handle: handle,
+                        element: element,
                         excluding: element.id,
                         minimumSize: minimumFrameSize(for: element)
                     )
@@ -485,11 +508,7 @@ struct LabelCanvasView: View {
             return
         }
 
-        let guide = document.guides[index]
-        let maxPosition = guide.orientation == .vertical
-            ? document.label.widthDots
-            : document.label.heightDots
-        document.guides[index].positionDots = min(max(positionDots, 0), maxPosition)
+        document.guides[index].positionDots = positionDots
     }
 
     private func resizedFrame(
@@ -506,9 +525,12 @@ struct LabelCanvasView: View {
         var y = originalFrame.yDots
         var width = originalFrame.widthDots
         var height = originalFrame.heightDots
+        let originalCenter = CGPoint(
+            x: CGFloat(originalFrame.xDots) + CGFloat(originalFrame.widthDots) / 2,
+            y: CGFloat(originalFrame.yDots) + CGFloat(originalFrame.heightDots) / 2
+        )
 
         if handle.affectsLeft {
-            x += deltaX
             width -= deltaX
         }
 
@@ -526,39 +548,56 @@ struct LabelCanvasView: View {
         }
 
         if width < minWidth {
-            if handle.affectsLeft {
-                x = originalFrame.xDots + originalFrame.widthDots - minWidth
-            }
             width = minWidth
         }
 
         if height < minHeight {
-            if handle.affectsTop {
-                y = originalFrame.yDots + originalFrame.heightDots - minHeight
-            }
             height = minHeight
         }
 
-        if x < 0 {
-            width += x
-            x = 0
+        let fixedAnchor = handle.fixedAnchor
+        let centerShift = rotatedVector(
+            x: fixedAnchor.x * (CGFloat(originalFrame.widthDots) - CGFloat(width)) / 2,
+            y: fixedAnchor.y * (CGFloat(originalFrame.heightDots) - CGFloat(height)) / 2,
+            rotation: element.rotation
+        )
+        let nextCenter = CGPoint(
+            x: originalCenter.x + centerShift.x,
+            y: originalCenter.y + centerShift.y
+        )
+
+        x = Int(round(nextCenter.x - CGFloat(width) / 2))
+        y = Int(round(nextCenter.y - CGFloat(height) / 2))
+
+        return constrainedElementFrame(
+            LabelElementFrame(
+                xDots: x,
+                yDots: y,
+                widthDots: width,
+                heightDots: height
+            ),
+            minimumSize: minimumSize
+        )
+    }
+
+    private func localResizeDelta(
+        xDots: Int,
+        yDots: Int,
+        rotation: LabelElementRotation
+    ) -> (xDots: Int, yDots: Int) {
+        guard rotation.degrees != 0 else {
+            return (xDots, yDots)
         }
 
-        if y < 0 {
-            height += y
-            y = 0
-        }
+        let radians = Double(rotation.degrees) * .pi / 180
+        let cosine = cos(radians)
+        let sine = sin(radians)
+        let x = Double(xDots)
+        let y = Double(yDots)
 
-        x = min(max(x, 0), max(0, document.label.widthDots - minWidth))
-        y = min(max(y, 0), max(0, document.label.heightDots - minHeight))
-        width = min(max(width, minWidth), document.label.widthDots - x)
-        height = min(max(height, minHeight), document.label.heightDots - y)
-
-        return LabelElementFrame(
-            xDots: x,
-            yDots: y,
-            widthDots: width,
-            heightDots: height
+        return (
+            Int(round(cosine * x + sine * y)),
+            Int(round(-sine * x + cosine * y))
         )
     }
 
@@ -576,9 +615,11 @@ struct LabelCanvasView: View {
 
     private func measuredTextSizeDots(for element: TextLabelElement) -> (widthDots: Int, heightDots: Int) {
         let displayText = element.text.isEmpty ? " " : element.text
-        let font = NSFont.systemFont(
-            ofSize: CGFloat(max(7, element.fontSizeDots)),
-            weight: element.isBold ? .semibold : .regular
+        let font = TextLabelFontCatalog.nsFont(
+            familyName: element.fontFamilyName,
+            size: CGFloat(max(7, element.fontSizeDots)),
+            isBold: element.isBold,
+            isItalic: element.isItalic
         )
         let attributes: [NSAttributedString.Key: Any] = [.font: font]
         let size = (displayText as NSString).size(withAttributes: attributes)
@@ -593,41 +634,48 @@ struct LabelCanvasView: View {
 
     private func snappedFrameForMoving(
         _ frame: LabelElementFrame,
+        element: LabelElement,
         excluding elementID: UUID
     ) -> LabelElementFrame {
         var snappedFrame = frame
+        let anchors = snapAnchors(for: element, frame: frame)
 
         if let offsetX = bestSnapOffset(
-            anchors: [
-                frame.xDots,
-                frame.xDots + frame.widthDots / 2,
-                frame.xDots + frame.widthDots
-            ],
+            anchors: anchors.vertical,
             targets: verticalSnapTargets(excluding: elementID)
         ) {
             snappedFrame.xDots += offsetX
         }
 
         if let offsetY = bestSnapOffset(
-            anchors: [
-                frame.yDots,
-                frame.yDots + frame.heightDots / 2,
-                frame.yDots + frame.heightDots
-            ],
+            anchors: anchors.horizontal,
             targets: horizontalSnapTargets(excluding: elementID)
         ) {
             snappedFrame.yDots += offsetY
         }
 
-        return constrainedElementFrame(snappedFrame)
+        return snappedFrame
     }
 
     private func snappedFrameForResizing(
         _ frame: LabelElementFrame,
+        originalFrame: LabelElementFrame,
         handle: ResizeHandle,
+        element: LabelElement,
         excluding elementID: UUID,
         minimumSize: (widthDots: Int, heightDots: Int)
     ) -> LabelElementFrame {
+        if element.rotation.degrees != 0 {
+            return snappedRotatedFrameForResizing(
+                frame,
+                originalFrame: originalFrame,
+                handle: handle,
+                element: element,
+                excluding: elementID,
+                minimumSize: minimumSize
+            )
+        }
+
         var snappedFrame = frame
         let verticalTargets = verticalSnapTargets(excluding: elementID)
         let horizontalTargets = horizontalSnapTargets(excluding: elementID)
@@ -690,12 +738,7 @@ struct LabelCanvasView: View {
         document.elements
             .filter { $0.id != elementID }
             .flatMap { element in
-                let frame = element.frame
-                return [
-                    frame.xDots,
-                    frame.xDots + frame.widthDots / 2,
-                    frame.xDots + frame.widthDots
-                ]
+                snapAnchors(for: element, frame: element.frame).vertical
             }
     }
 
@@ -703,13 +746,176 @@ struct LabelCanvasView: View {
         document.elements
             .filter { $0.id != elementID }
             .flatMap { element in
-                let frame = element.frame
-                return [
+                snapAnchors(for: element, frame: element.frame).horizontal
+            }
+    }
+
+    private func snapAnchors(
+        for element: LabelElement,
+        frame: LabelElementFrame
+    ) -> (vertical: [Int], horizontal: [Int]) {
+        guard element.rotation.degrees != 0 else {
+            return (
+                [
+                    frame.xDots,
+                    frame.xDots + frame.widthDots / 2,
+                    frame.xDots + frame.widthDots
+                ],
+                [
                     frame.yDots,
                     frame.yDots + frame.heightDots / 2,
                     frame.yDots + frame.heightDots
                 ]
-            }
+            )
+        }
+
+        let corners = rotatedCorners(for: frame, rotation: element.rotation)
+        return (
+            Array(Set(corners.map { Int(round($0.x)) })).sorted(),
+            Array(Set(corners.map { Int(round($0.y)) })).sorted()
+        )
+    }
+
+    private func snappedRotatedFrameForResizing(
+        _ frame: LabelElementFrame,
+        originalFrame: LabelElementFrame,
+        handle: ResizeHandle,
+        element: LabelElement,
+        excluding elementID: UUID,
+        minimumSize: (widthDots: Int, heightDots: Int)
+    ) -> LabelElementFrame {
+        guard handle.isCorner else {
+            return constrainedElementFrame(
+                frame,
+                minimumSize: minimumSize
+            )
+        }
+
+        let draggedCorner = rotatedHandlePoint(
+            frame: frame,
+            handle: handle,
+            rotation: element.rotation
+        )
+        var snappedCorner = draggedCorner
+        var didSnap = false
+
+        if let offsetX = bestSnapOffset(
+            anchors: [Int(round(draggedCorner.x))],
+            targets: verticalSnapTargets(excluding: elementID)
+        ) {
+            snappedCorner.x += CGFloat(offsetX)
+            didSnap = true
+        }
+
+        if let offsetY = bestSnapOffset(
+            anchors: [Int(round(draggedCorner.y))],
+            targets: horizontalSnapTargets(excluding: elementID)
+        ) {
+            snappedCorner.y += CGFloat(offsetY)
+            didSnap = true
+        }
+
+        guard didSnap else {
+            return constrainedElementFrame(
+                frame,
+                minimumSize: minimumSize
+            )
+        }
+
+        let fixedCorner = rotatedHandlePoint(
+            frame: originalFrame,
+            handle: handle.opposite,
+            rotation: element.rotation
+        )
+        let span = CGPoint(
+            x: snappedCorner.x - fixedCorner.x,
+            y: snappedCorner.y - fixedCorner.y
+        )
+        let localSpan = localVector(
+            x: span.x,
+            y: span.y,
+            rotation: element.rotation
+        )
+        let width = max(minimumSize.widthDots, Int(round(abs(localSpan.x))))
+        let height = max(minimumSize.heightDots, Int(round(abs(localSpan.y))))
+        let center = CGPoint(
+            x: (fixedCorner.x + snappedCorner.x) / 2,
+            y: (fixedCorner.y + snappedCorner.y) / 2
+        )
+
+        return constrainedElementFrame(
+            LabelElementFrame(
+                xDots: Int(round(center.x - CGFloat(width) / 2)),
+                yDots: Int(round(center.y - CGFloat(height) / 2)),
+                widthDots: width,
+                heightDots: height
+            ),
+            minimumSize: minimumSize
+        )
+    }
+
+    private func rotatedCorners(
+        for frame: LabelElementFrame,
+        rotation: LabelElementRotation
+    ) -> [CGPoint] {
+        [
+            rotatedHandlePoint(frame: frame, handle: .topLeft, rotation: rotation),
+            rotatedHandlePoint(frame: frame, handle: .topRight, rotation: rotation),
+            rotatedHandlePoint(frame: frame, handle: .bottomRight, rotation: rotation),
+            rotatedHandlePoint(frame: frame, handle: .bottomLeft, rotation: rotation)
+        ]
+    }
+
+    private func rotatedHandlePoint(
+        frame: LabelElementFrame,
+        handle: ResizeHandle,
+        rotation: LabelElementRotation
+    ) -> CGPoint {
+        let center = CGPoint(
+            x: CGFloat(frame.xDots) + CGFloat(frame.widthDots) / 2,
+            y: CGFloat(frame.yDots) + CGFloat(frame.heightDots) / 2
+        )
+        let anchor = handle.localAnchor
+        let offset = rotatedVector(
+            x: anchor.x * CGFloat(frame.widthDots) / 2,
+            y: anchor.y * CGFloat(frame.heightDots) / 2,
+            rotation: rotation
+        )
+
+        return CGPoint(
+            x: center.x + offset.x,
+            y: center.y + offset.y
+        )
+    }
+
+    private func rotatedVector(
+        x: CGFloat,
+        y: CGFloat,
+        rotation: LabelElementRotation
+    ) -> CGPoint {
+        let radians = CGFloat(rotation.degrees) * .pi / 180
+        let cosine = cos(radians)
+        let sine = sin(radians)
+
+        return CGPoint(
+            x: cosine * x - sine * y,
+            y: sine * x + cosine * y
+        )
+    }
+
+    private func localVector(
+        x: CGFloat,
+        y: CGFloat,
+        rotation: LabelElementRotation
+    ) -> CGPoint {
+        let radians = CGFloat(rotation.degrees) * .pi / 180
+        let cosine = cos(radians)
+        let sine = sin(radians)
+
+        return CGPoint(
+            x: cosine * x + sine * y,
+            y: -sine * x + cosine * y
+        )
     }
 
     private func bestSnapOffset(anchors: [Int], targets: [Int]) -> Int? {
@@ -766,16 +972,76 @@ struct LabelCanvasView: View {
     }
 
     private func deleteSelectedElement() {
-        guard let selectedElementID else {
+        guard selectedElementID != nil || selectedGuideID != nil else {
             return
         }
 
-        document.elements.removeAll { $0.id == selectedElementID }
-        self.selectedElementID = nil
+        pushUndoSnapshot()
+        deleteSelectedElement(recordUndo: false)
+    }
+
+    private func deleteSelectedElement(recordUndo: Bool) {
+        guard selectedElementID != nil || selectedGuideID != nil else {
+            return
+        }
+
+        if recordUndo {
+            pushUndoSnapshot()
+        }
+
+        if let selectedElementID {
+            document.elements.removeAll { $0.id == selectedElementID }
+            self.selectedElementID = nil
+        }
+
+        if let selectedGuideID {
+            document.guides.removeAll { $0.id == selectedGuideID }
+            self.selectedGuideID = nil
+        }
+
         activeDrag = nil
         activeResize = nil
-        selectedGuideID = nil
         activeFormatPanePage = .document
+    }
+
+    private func moveSelectedCanvasObject(deltaX: Int, deltaY: Int) {
+        guard selectedElementID != nil || selectedGuideID != nil else {
+            NSSound.beep()
+            return
+        }
+
+        editingTextElementID = nil
+
+        if let selectedElementID,
+           let element = document.elements.first(where: { $0.id == selectedElementID }) {
+            pushUndoSnapshot()
+            var nextFrame = element.frame
+            nextFrame.xDots += deltaX
+            nextFrame.yDots += deltaY
+            updateElementFrame(
+                id: selectedElementID,
+                frame: snappedFrameForMoving(
+                    nextFrame,
+                    element: element,
+                    excluding: selectedElementID
+                )
+            )
+            focusKeyboardShortcuts()
+            return
+        }
+
+        if let selectedGuideID,
+           let guide = document.guides.first(where: { $0.id == selectedGuideID }) {
+            guard !guide.locked else {
+                NSSound.beep()
+                return
+            }
+
+            pushUndoSnapshot()
+            let delta = guide.orientation == .vertical ? deltaX : deltaY
+            updateGuidePosition(id: selectedGuideID, positionDots: guide.positionDots + delta)
+            focusKeyboardShortcuts()
+        }
     }
 
     private func selectVariable(_ variable: VariableDefinition) {
@@ -787,16 +1053,95 @@ struct LabelCanvasView: View {
         focusKeyboardShortcuts()
     }
 
-    private func duplicateSelectedElement() {
-        guard let selectedElementID,
-              let element = document.elements.first(where: { $0.id == selectedElementID }) else {
+    private func copySelectedElement() {
+        guard let selectedObject = selectedCanvasObject else {
+            NSSound.beep()
             return
         }
 
-        let duplicatedElement = duplicate(element)
-        document.elements.append(duplicatedElement)
-        self.selectedElementID = duplicatedElement.id
+        do {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+
+            switch selectedObject {
+            case .element(let element):
+                let data = try JSONEncoder.zprint.encode(element)
+                pasteboard.setData(data, forType: elementPasteboardType)
+            case .guide(let guide):
+                let data = try JSONEncoder.zprint.encode(guide)
+                pasteboard.setData(data, forType: guidePasteboardType)
+            }
+        } catch {
+            NSSound.beep()
+        }
+    }
+
+    private func cutSelectedElement() {
+        guard selectedCanvasObject != nil else {
+            NSSound.beep()
+            return
+        }
+
+        pushUndoSnapshot()
+        copySelectedElement()
+        deleteSelectedElement(recordUndo: false)
+    }
+
+    private func pasteElement() {
+        let pasteboard = NSPasteboard.general
+
+        if let data = pasteboard.data(forType: elementPasteboardType),
+           let element = try? JSONDecoder.zprint.decode(LabelElement.self, from: data) {
+            pushUndoSnapshot()
+            let pastedElement = duplicate(element)
+            document.elements.append(pastedElement)
+            selectedElementID = pastedElement.id
+            selectedGuideID = nil
+            selectedVariableID = nil
+            activeFormatPanePage = .document
+            editingTextElementID = nil
+            focusKeyboardShortcuts()
+            return
+        }
+
+        if let data = pasteboard.data(forType: guidePasteboardType),
+           let guide = try? JSONDecoder.zprint.decode(GuideElement.self, from: data) {
+            pushUndoSnapshot()
+            let pastedGuide = duplicate(guide)
+            document.guides.append(pastedGuide)
+            selectedElementID = nil
+            selectedGuideID = pastedGuide.id
+            selectedVariableID = nil
+            activeFormatPanePage = .document
+            editingTextElementID = nil
+            focusKeyboardShortcuts()
+            return
+        }
+
+        NSSound.beep()
+    }
+
+    private func duplicateSelectedElement() {
+        guard let selectedObject = selectedCanvasObject else {
+            return
+        }
+
+        pushUndoSnapshot()
+        switch selectedObject {
+        case .element(let element):
+            let duplicatedElement = duplicate(element)
+            document.elements.append(duplicatedElement)
+            selectedElementID = duplicatedElement.id
+            selectedGuideID = nil
+        case .guide(let guide):
+            let duplicatedGuide = duplicate(guide)
+            document.guides.append(duplicatedGuide)
+            selectedElementID = nil
+            selectedGuideID = duplicatedGuide.id
+        }
+        selectedVariableID = nil
         activeFormatPanePage = .document
+        editingTextElementID = nil
         focusKeyboardShortcuts()
     }
 
@@ -826,6 +1171,99 @@ struct LabelCanvasView: View {
         }
     }
 
+    private func duplicate(_ guide: GuideElement) -> GuideElement {
+        var duplicatedGuide = guide
+        let offsetDots = 16
+        let maxPosition = guide.orientation == .vertical
+            ? document.label.widthDots
+            : document.label.heightDots
+
+        duplicatedGuide.id = UUID()
+        duplicatedGuide.positionDots = min(max(guide.positionDots + offsetDots, 0), maxPosition)
+        duplicatedGuide.name = guide.name
+        return duplicatedGuide
+    }
+
+    private var selectedCanvasObject: CanvasClipboardObject? {
+        if let selectedElement {
+            return .element(selectedElement)
+        }
+
+        if let selectedGuide {
+            return .guide(selectedGuide)
+        }
+
+        return nil
+    }
+
+    private var selectedElement: LabelElement? {
+        guard let selectedElementID else {
+            return nil
+        }
+
+        return document.elements.first { $0.id == selectedElementID }
+    }
+
+    private var selectedGuide: GuideElement? {
+        guard let selectedGuideID else {
+            return nil
+        }
+
+        return document.guides.first { $0.id == selectedGuideID }
+    }
+
+    private func pushUndoSnapshot() {
+        undoStack.append(currentEditSnapshot)
+
+        if undoStack.count > maximumUndoSnapshots {
+            undoStack.removeFirst(undoStack.count - maximumUndoSnapshots)
+        }
+
+        redoStack.removeAll()
+    }
+
+    private var currentEditSnapshot: DocumentEditSnapshot {
+        DocumentEditSnapshot(
+            document: document,
+            selectedElementID: selectedElementID,
+            selectedGuideID: selectedGuideID,
+            selectedVariableID: selectedVariableID
+        )
+    }
+
+    private func undoLastEdit() {
+        guard let snapshot = undoStack.popLast() else {
+            NSSound.beep()
+            return
+        }
+
+        redoStack.append(currentEditSnapshot)
+        restore(snapshot)
+    }
+
+    private func redoLastEdit() {
+        guard let snapshot = redoStack.popLast() else {
+            NSSound.beep()
+            return
+        }
+
+        undoStack.append(currentEditSnapshot)
+        restore(snapshot)
+    }
+
+    private func restore(_ snapshot: DocumentEditSnapshot) {
+        document = snapshot.document
+        selectedElementID = snapshot.selectedElementID
+        selectedGuideID = snapshot.selectedGuideID
+        selectedVariableID = snapshot.selectedVariableID
+        activeDrag = nil
+        activeResize = nil
+        activeGuideDrag = nil
+        editingTextElementID = nil
+        activeFormatPanePage = selectedVariableID == nil ? .document : .variables
+        focusKeyboardShortcuts()
+    }
+
     private func focusKeyboardShortcuts() {
         keyboardFocusToken = UUID()
     }
@@ -849,6 +1287,18 @@ struct LabelCanvasView: View {
 private struct ElementDragState {
     let id: UUID
     let originalFrame: LabelElementFrame
+}
+
+private struct DocumentEditSnapshot {
+    let document: ZPrintDocument
+    let selectedElementID: UUID?
+    let selectedGuideID: UUID?
+    let selectedVariableID: UUID?
+}
+
+private enum CanvasClipboardObject {
+    case element(LabelElement)
+    case guide(GuideElement)
 }
 
 private struct ElementResizeState {
@@ -886,6 +1336,65 @@ private enum ResizeHandle: CaseIterable {
 
     var affectsBottom: Bool {
         self == .bottomLeft || self == .bottomRight || self == .bottom
+    }
+
+    var isCorner: Bool {
+        switch self {
+        case .topLeft, .topRight, .bottomRight, .bottomLeft:
+            return true
+        case .top, .right, .bottom, .left:
+            return false
+        }
+    }
+
+    var localAnchor: (x: CGFloat, y: CGFloat) {
+        switch self {
+        case .topLeft:
+            return (-1, -1)
+        case .top:
+            return (0, -1)
+        case .topRight:
+            return (1, -1)
+        case .right:
+            return (1, 0)
+        case .bottomRight:
+            return (1, 1)
+        case .bottom:
+            return (0, 1)
+        case .bottomLeft:
+            return (-1, 1)
+        case .left:
+            return (-1, 0)
+        }
+    }
+
+    var fixedAnchor: (x: CGFloat, y: CGFloat) {
+        let anchor = localAnchor
+        return (
+            affectsLeft || affectsRight ? -anchor.x : 0,
+            affectsTop || affectsBottom ? -anchor.y : 0
+        )
+    }
+
+    var opposite: ResizeHandle {
+        switch self {
+        case .topLeft:
+            return .bottomRight
+        case .top:
+            return .bottom
+        case .topRight:
+            return .bottomLeft
+        case .right:
+            return .left
+        case .bottomRight:
+            return .topLeft
+        case .bottom:
+            return .top
+        case .bottomLeft:
+            return .topRight
+        case .left:
+            return .right
+        }
     }
 
     var cursor: NSCursor {
@@ -1063,13 +1572,35 @@ private struct CanvasVariableChipStrip: View {
 }
 
 private struct FloatingTextFormatBar: View {
-    static let preferredSize = CGSize(width: 314, height: 42)
+    static let preferredSize = CGSize(width: 448, height: 42)
 
     @Binding var element: TextLabelElement
     let onInteract: () -> Void
 
     var body: some View {
         HStack(spacing: 7) {
+            Menu {
+                ForEach(TextLabelFontCatalog.fontFamilyNames, id: \.self) { familyName in
+                    Button(TextLabelFontCatalog.displayName(for: familyName)) {
+                        onInteract()
+                        element.fontFamilyName = familyName
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(TextLabelFontCatalog.displayName(for: element.fontFamilyName))
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .font(.system(size: 12, weight: .medium))
+                .frame(width: 112, height: 24)
+            }
+            .menuStyle(.borderlessButton)
+
+            separator
+
             formatButton("B", isActive: element.isBold) {
                 element.isBold.toggle()
             }
@@ -1087,35 +1618,17 @@ private struct FloatingTextFormatBar: View {
 
             separator
 
-            HStack(spacing: 2) {
-                Button {
-                    onInteract()
-                    fontSizeBinding.wrappedValue -= 1
-                } label: {
-                    Image(systemName: "minus")
-                        .frame(width: 22, height: 24)
-                }
-                .buttonStyle(.plain)
-
-                Text("\(element.fontSizeDots)")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .frame(width: 34)
-
-                Button {
-                    onInteract()
-                    fontSizeBinding.wrappedValue += 1
-                } label: {
-                    Image(systemName: "plus")
-                        .frame(width: 22, height: 24)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 3)
-            .background {
-                Capsule()
-                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.72))
-            }
+            ZPrintNumberStepperField(
+                title: "Schriftgröße",
+                value: fontSizeBinding,
+                width: 104
+            )
+            .simultaneousGesture(
+                TapGesture()
+                    .onEnded {
+                        onInteract()
+                    }
+            )
 
             separator
 
@@ -1203,17 +1716,35 @@ private struct CanvasKeyEventHandler: NSViewRepresentable {
     let focusToken: UUID
     let onDelete: () -> Void
     let onDuplicate: () -> Void
+    let onCopy: () -> Void
+    let onCut: () -> Void
+    let onPaste: () -> Void
+    let onUndo: () -> Void
+    let onRedo: () -> Void
+    let onMoveSelection: (_ deltaX: Int, _ deltaY: Int) -> Void
 
     func makeNSView(context: Context) -> KeyEventView {
         let view = KeyEventView()
         view.onDelete = onDelete
         view.onDuplicate = onDuplicate
+        view.onCopy = onCopy
+        view.onCut = onCut
+        view.onPaste = onPaste
+        view.onUndo = onUndo
+        view.onRedo = onRedo
+        view.onMoveSelection = onMoveSelection
         return view
     }
 
     func updateNSView(_ nsView: KeyEventView, context: Context) {
         nsView.onDelete = onDelete
         nsView.onDuplicate = onDuplicate
+        nsView.onCopy = onCopy
+        nsView.onCut = onCut
+        nsView.onPaste = onPaste
+        nsView.onUndo = onUndo
+        nsView.onRedo = onRedo
+        nsView.onMoveSelection = onMoveSelection
 
         guard context.coordinator.lastFocusToken != focusToken else {
             return
@@ -1236,6 +1767,12 @@ private struct CanvasKeyEventHandler: NSViewRepresentable {
     final class KeyEventView: NSView {
         var onDelete: (() -> Void)?
         var onDuplicate: (() -> Void)?
+        var onCopy: (() -> Void)?
+        var onCut: (() -> Void)?
+        var onPaste: (() -> Void)?
+        var onUndo: (() -> Void)?
+        var onRedo: (() -> Void)?
+        var onMoveSelection: ((_ deltaX: Int, _ deltaY: Int) -> Void)?
 
         override var acceptsFirstResponder: Bool {
             true
@@ -1243,14 +1780,56 @@ private struct CanvasKeyEventHandler: NSViewRepresentable {
 
         override func keyDown(with event: NSEvent) {
             if event.modifierFlags.contains(.command),
-               event.charactersIgnoringModifiers?.lowercased() == "d" {
-                onDuplicate?()
-                return
+               let character = event.charactersIgnoringModifiers?.lowercased() {
+                switch character {
+                case "c":
+                    onCopy?()
+                    return
+                case "x":
+                    onCut?()
+                    return
+                case "v":
+                    onPaste?()
+                    return
+                case "z":
+                    if event.modifierFlags.contains(.shift) {
+                        onRedo?()
+                    } else {
+                        onUndo?()
+                    }
+                    return
+                case "y":
+                    onRedo?()
+                    return
+                case "d":
+                    onDuplicate?()
+                    return
+                default:
+                    break
+                }
             }
 
             if event.keyCode == 51 || event.keyCode == 117 {
                 onDelete?()
                 return
+            }
+
+            let movementStep = event.modifierFlags.contains(.shift) ? 10 : 1
+            switch event.keyCode {
+            case 123:
+                onMoveSelection?(-movementStep, 0)
+                return
+            case 124:
+                onMoveSelection?(movementStep, 0)
+                return
+            case 125:
+                onMoveSelection?(0, movementStep)
+                return
+            case 126:
+                onMoveSelection?(0, -movementStep)
+                return
+            default:
+                break
             }
 
             super.keyDown(with: event)
@@ -1298,59 +1877,82 @@ private struct CanvasLabelElementView: View {
     }
 
     private func textFont(for element: TextLabelElement) -> Font {
-        .system(
+        TextLabelFontCatalog.swiftUIFont(
+            familyName: element.fontFamilyName,
             size: max(7, scale.points(fromDots: element.fontSizeDots)),
-            weight: element.isBold ? .semibold : .regular
+            isBold: element.isBold
         )
     }
 
     private func barcodeElementView(_ element: BarcodeLabelElement) -> some View {
-        VStack(spacing: 4) {
-            HStack {
-                Text(element.symbology.displayName.uppercased())
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
-
-            BarcodeBarsView(moduleWidth: max(1, scale.points(fromDots: element.moduleWidth)))
+        VStack(spacing: 0) {
+            BarcodeBarsView(value: element.value)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if element.showsHumanReadableText {
                 Text(element.value)
                     .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
+                    .frame(maxWidth: .infinity)
             }
         }
-        .padding(6)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.75))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-        }
+        .clipped()
     }
 
     @ViewBuilder
     private func shapeElementView(_ element: ShapeLabelElement) -> some View {
+        let fillColor = element.isFilled ? Color(labelElementColor: element.fillColor) : Color.clear
+        let strokeColor = Color(labelElementColor: element.strokeColor)
+        let strokeWidth = max(1, scale.points(fromDots: element.strokeWidthDots))
+
         switch element.shape {
         case .rectangle:
-            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                .fill(element.isFilled ? Color.accentColor.opacity(0.18) : Color.clear)
+            Rectangle()
+                .fill(fillColor)
                 .overlay {
-                    RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .stroke(Color.primary.opacity(0.82), lineWidth: max(1, scale.points(fromDots: element.strokeWidthDots)))
+                    if element.hasStroke {
+                        Rectangle()
+                            .stroke(strokeColor, lineWidth: strokeWidth)
+                    }
+                }
+        case .roundedRectangle:
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(fillColor)
+                .overlay {
+                    if element.hasStroke {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(strokeColor, lineWidth: strokeWidth)
+                    }
                 }
         case .ellipse:
             Ellipse()
-                .fill(element.isFilled ? Color.accentColor.opacity(0.18) : Color.clear)
+                .fill(fillColor)
                 .overlay {
-                    Ellipse()
-                        .stroke(Color.primary.opacity(0.82), lineWidth: max(1, scale.points(fromDots: element.strokeWidthDots)))
+                    if element.hasStroke {
+                        Ellipse()
+                            .stroke(strokeColor, lineWidth: strokeWidth)
+                    }
+                }
+        case .capsule:
+            Capsule()
+                .fill(fillColor)
+                .overlay {
+                    if element.hasStroke {
+                        Capsule()
+                            .stroke(strokeColor, lineWidth: strokeWidth)
+                    }
+                }
+        case .triangle:
+            CanvasTriangleShape()
+                .fill(fillColor)
+                .overlay {
+                    if element.hasStroke {
+                        CanvasTriangleShape()
+                            .stroke(strokeColor, lineWidth: strokeWidth)
+                    }
                 }
         case .line:
             GeometryReader { proxy in
@@ -1358,9 +1960,31 @@ private struct CanvasLabelElementView: View {
                     path.move(to: CGPoint(x: 0, y: proxy.size.height / 2))
                     path.addLine(to: CGPoint(x: proxy.size.width, y: proxy.size.height / 2))
                 }
-                .stroke(Color.primary.opacity(0.82), lineWidth: max(1, scale.points(fromDots: element.strokeWidthDots)))
+                .stroke(strokeColor, lineWidth: strokeWidth)
             }
         }
+    }
+}
+
+private struct CanvasTriangleShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path { path in
+            path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+            path.closeSubpath()
+        }
+    }
+}
+
+private extension Color {
+    init(labelElementColor color: LabelElementColor) {
+        self.init(
+            red: color.red,
+            green: color.green,
+            blue: color.blue,
+            opacity: color.alpha
+        )
     }
 }
 
@@ -1485,9 +2109,10 @@ private struct InlineTextElementEditor: View {
     }
 
     private var textFont: Font {
-        .system(
+        TextLabelFontCatalog.swiftUIFont(
+            familyName: element.fontFamilyName,
             size: max(7, scale.points(fromDots: element.fontSizeDots)),
-            weight: element.isBold ? .semibold : .regular
+            isBold: element.isBold
         )
     }
 }
@@ -1506,31 +2131,33 @@ private extension TextElementAlignment {
 }
 
 private struct BarcodeBarsView: View {
-    let moduleWidth: CGFloat
-
-    private let barHeights: [CGFloat] = [
-        0.82, 0.44, 0.70, 0.92, 0.56, 0.76, 0.38, 0.88,
-        0.64, 0.48, 0.96, 0.72, 0.42, 0.80, 0.58, 0.90,
-        0.52, 0.68, 0.84, 0.46, 0.78, 0.60, 0.94, 0.50
-    ]
+    let value: String
 
     var body: some View {
-        GeometryReader { proxy in
-            HStack(alignment: .bottom, spacing: max(1, moduleWidth)) {
-                ForEach(barHeights.indices, id: \.self) { index in
-                    Rectangle()
-                        .fill(Color.primary.opacity(0.84))
-                        .frame(
-                            width: barWidth(at: index),
-                            height: proxy.size.height * barHeights[index]
-                        )
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        }
-    }
+        let segments = Code128Barcode.segments(for: value)
 
-    private func barWidth(at index: Int) -> CGFloat {
-        index.isMultiple(of: 5) ? moduleWidth * 1.8 : moduleWidth
+        return GeometryReader { proxy in
+            if segments.isEmpty {
+                Text("Kein Wert")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                let totalModules = segments.reduce(0) { $0 + $1.widthModules }
+                let fittedModuleWidth = proxy.size.width / CGFloat(max(totalModules, 1))
+
+                HStack(alignment: .bottom, spacing: 0) {
+                    ForEach(segments) { segment in
+                        Rectangle()
+                            .fill(segment.isBar ? Color.primary : Color.clear)
+                            .frame(
+                                width: CGFloat(segment.widthModules) * fittedModuleWidth,
+                                height: proxy.size.height
+                            )
+                    }
+                }
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
+            }
+        }
     }
 }

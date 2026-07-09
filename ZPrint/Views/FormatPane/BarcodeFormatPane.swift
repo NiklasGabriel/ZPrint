@@ -43,6 +43,7 @@ struct BarcodeFormatPane: View {
                 IntegerPropertyField(title: "Y", value: frameBinding(\.yDots))
                 IntegerPropertyField(title: "Breite", value: frameBinding(\.widthDots, minimum: 1))
                 IntegerPropertyField(title: "Höhe", value: frameBinding(\.heightDots, minimum: 1))
+                IntegerPropertyField(title: "Drehung", value: rotationBinding)
             }
 
             FormatSection(title: "Aktionen") {
@@ -54,13 +55,13 @@ struct BarcodeFormatPane: View {
         }
     }
 
-    private func frameBinding(_ keyPath: WritableKeyPath<LabelElementFrame, Int>, minimum: Int = 0) -> Binding<Int> {
+    private func frameBinding(_ keyPath: WritableKeyPath<LabelElementFrame, Int>, minimum: Int = Int.min) -> Binding<Int> {
         Binding(
             get: { element.frame[keyPath: keyPath] },
             set: { newValue in
                 var frame = element.frame
                 frame[keyPath: keyPath] = max(minimum, newValue)
-                element.frame = frame.clamped(to: labelSize)
+                element.frame = frame
             }
         )
     }
@@ -69,6 +70,13 @@ struct BarcodeFormatPane: View {
         Binding(
             get: { element[keyPath: keyPath] },
             set: { element[keyPath: keyPath] = min(max($0, range.lowerBound), range.upperBound) }
+        )
+    }
+
+    private var rotationBinding: Binding<Int> {
+        Binding(
+            get: { element.rotation.degrees },
+            set: { element.rotation = LabelElementRotation(degrees: $0) }
         )
     }
 }

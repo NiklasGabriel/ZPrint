@@ -337,7 +337,11 @@ private struct TextElementInspector: View {
     var body: some View {
         Section("Inhalt") {
             TextEditor(text: $element.text)
-                .font(.system(size: 12))
+                .font(TextLabelFontCatalog.swiftUIFont(
+                    familyName: element.fontFamilyName,
+                    size: 12,
+                    isBold: element.isBold
+                ))
                 .frame(minHeight: 74)
                 .overlay {
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -350,6 +354,13 @@ private struct TextElementInspector: View {
         }
 
         Section("Typografie") {
+            Picker("Schrift", selection: $element.fontFamilyName) {
+                ForEach(TextLabelFontCatalog.fontFamilyNames, id: \.self) { familyName in
+                    Text(TextLabelFontCatalog.displayName(for: familyName))
+                        .tag(familyName)
+                }
+            }
+
             IntegerInspectorField(title: "Größe", value: clampedBinding(\.fontSizeDots, 6...200))
 
             Picker("Ausrichtung", selection: $element.alignment) {
@@ -793,14 +804,13 @@ private struct IntegerInspectorField: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 58, alignment: .leading)
 
-            TextField(title, value: $value, format: .number)
-                .textFieldStyle(.roundedBorder)
-                .multilineTextAlignment(.trailing)
-                .monospacedDigit()
+            Spacer()
 
-            Stepper(title, value: $value)
-                .labelsHidden()
-                .frame(width: 42)
+            ZPrintNumberStepperField(
+                title: title,
+                value: $value,
+                width: 116
+            )
         }
         .controlSize(.small)
     }

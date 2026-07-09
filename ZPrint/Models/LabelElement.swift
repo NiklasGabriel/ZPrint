@@ -32,6 +32,17 @@ enum LabelElement: Codable, Equatable, Identifiable, Sendable {
         }
     }
 
+    var rotation: LabelElementRotation {
+        switch self {
+        case .text(let element):
+            return element.rotation
+        case .barcode(let element):
+            return element.rotation
+        case .shape(let element):
+            return element.rotation
+        }
+    }
+
     func replacingFrame(_ frame: LabelElementFrame) -> LabelElement {
         switch self {
         case .text(var element):
@@ -114,9 +125,30 @@ struct LabelElementFrame: Codable, Equatable, Sendable {
     }
 }
 
-enum LabelElementRotation: Int, Codable, Equatable, Sendable {
-    case degrees0 = 0
-    case degrees90 = 90
-    case degrees180 = 180
-    case degrees270 = 270
+struct LabelElementRotation: Codable, Equatable, Sendable {
+    var degrees: Int
+
+    static let degrees0 = LabelElementRotation(degrees: 0)
+    static let degrees90 = LabelElementRotation(degrees: 90)
+    static let degrees180 = LabelElementRotation(degrees: 180)
+    static let degrees270 = LabelElementRotation(degrees: 270)
+
+    init(degrees: Int = 0) {
+        self.degrees = Self.normalized(degrees)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        degrees = Self.normalized(try container.decode(Int.self))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(degrees)
+    }
+
+    private static func normalized(_ degrees: Int) -> Int {
+        let value = degrees % 360
+        return value < 0 ? value + 360 : value
+    }
 }
