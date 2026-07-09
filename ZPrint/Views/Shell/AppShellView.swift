@@ -58,7 +58,7 @@ struct AppShellView: View {
         }
         .background(ZPrintDesign.ColorToken.appBackground)
         .onAppear {
-            normalizePreviewContext()
+            normalizeDocumentDerivedState()
         }
         .onChange(of: selectedRibbonTab) { _, newTab in
             updateFormatPanePage(for: newTab)
@@ -101,7 +101,7 @@ struct AppShellView: View {
             }
         }
         .onChange(of: document.variables) { _, _ in
-            normalizePreviewContext()
+            normalizeDocumentDerivedState()
         }
         .onChange(of: document.printSettings) { _, _ in
             normalizePreviewContext()
@@ -130,7 +130,6 @@ struct AppShellView: View {
                     name: "Horizontale Hilfslinie"
                 )
             },
-            addStandardVariables: addStandardVariables,
             addVariable: addVariable
         )
     }
@@ -257,13 +256,6 @@ struct AppShellView: View {
         activeFormatPanePage = .document
     }
 
-    private func addStandardVariables() {
-        for variable in VariableDefinition.standardVariables
-        where !document.variables.contains(where: { $0.name == variable.name }) {
-            document.variables.append(variable)
-        }
-    }
-
     private func addVariable() {
         let baseName = "variable"
         var name = baseName
@@ -296,6 +288,16 @@ struct AppShellView: View {
         previewContext = VariableEngine.normalizedPreviewContext(previewContext, for: document)
     }
 
+    private func normalizeDocumentDerivedState() {
+        let normalizedPrintSettings = document.printSettings.normalized(for: document.variables)
+
+        if normalizedPrintSettings != document.printSettings {
+            document.printSettings = normalizedPrintSettings
+        }
+
+        normalizePreviewContext()
+    }
+
     private func updateFormatPanePage(for tab: RibbonTab) {
         switch tab {
         case .variables:
@@ -322,6 +324,5 @@ struct RibbonActions {
     let addLine: () -> Void
     let addVerticalGuide: () -> Void
     let addHorizontalGuide: () -> Void
-    let addStandardVariables: () -> Void
     let addVariable: () -> Void
 }

@@ -170,6 +170,7 @@ struct LabelCanvasView: View {
                 CanvasLabelElementView(
                     element: element,
                     scale: scale,
+                    variables: document.variables,
                     isSelected: selectedElementID == element.id
                 )
                 .contentShape(Rectangle())
@@ -371,7 +372,7 @@ struct LabelCanvasView: View {
 
                 updateElementFrame(
                     id: element.id,
-                    frame: snappedFrameForMoving(clampedFrame)
+                    frame: snappedFrameForMoving(clampedFrame, excluding: element.id)
                 )
             }
             .onEnded { _ in
@@ -404,6 +405,7 @@ struct LabelCanvasView: View {
                 let deltaY = scale.dots(fromPoints: value.translation.height)
                 let nextFrame = resizedFrame(
                     from: activeResize.originalFrame,
+                    element: element,
                     handle: handle,
                     deltaX: deltaX,
                     deltaY: deltaY
@@ -411,7 +413,12 @@ struct LabelCanvasView: View {
 
                 updateElementFrame(
                     id: element.id,
-                    frame: snappedFrameForResizing(nextFrame, handle: handle)
+                    frame: snappedFrameForResizing(
+                        nextFrame,
+                        handle: handle,
+                        excluding: element.id,
+                        minimumSize: minimumFrameSize(for: element)
+                    )
                 )
             }
             .onEnded { _ in
@@ -487,12 +494,14 @@ struct LabelCanvasView: View {
 
     private func resizedFrame(
         from originalFrame: LabelElementFrame,
+        element: LabelElement,
         handle: ResizeHandle,
         deltaX: Int,
         deltaY: Int
     ) -> LabelElementFrame {
-        let minWidth = minimumElementWidthDots
-        let minHeight = minimumElementHeightDots
+        let minimumSize = minimumFrameSize(for: element)
+        let minWidth = minimumSize.widthDots
+        let minHeight = minimumSize.heightDots
         var x = originalFrame.xDots
         var y = originalFrame.yDots
         var width = originalFrame.widthDots
@@ -553,7 +562,39 @@ struct LabelCanvasView: View {
         )
     }
 
-    private func snappedFrameForMoving(_ frame: LabelElementFrame) -> LabelElementFrame {
+    private func minimumFrameSize(for element: LabelElement) -> (widthDots: Int, heightDots: Int) {
+        guard case .text(let textElement) = element else {
+            return (minimumElementWidthDots, minimumElementHeightDots)
+        }
+
+        let measuredSize = measuredTextSizeDots(for: textElement)
+        return (
+            max(minimumElementWidthDots, measuredSize.widthDots),
+            max(minimumElementHeightDots, measuredSize.heightDots)
+        )
+    }
+
+    private func measuredTextSizeDots(for element: TextLabelElement) -> (widthDots: Int, heightDots: Int) {
+        let displayText = element.text.isEmpty ? " " : element.text
+        let font = NSFont.systemFont(
+            ofSize: CGFloat(max(7, element.fontSizeDots)),
+            weight: element.isBold ? .semibold : .regular
+        )
+        let attributes: [NSAttributedString.Key: Any] = [.font: font]
+        let size = (displayText as NSString).size(withAttributes: attributes)
+        let horizontalPaddingDots = 8
+        let verticalPaddingDots = 4
+
+        return (
+            Int(ceil(size.width)) + horizontalPaddingDots,
+            Int(ceil(font.ascender - font.descender + font.leading)) + verticalPaddingDots
+        )
+    }
+
+    private func snappedFrameForMoving(
+        _ frame: LabelElementFrame,
+        excluding elementID: UUID
+    ) -> LabelElementFrame {
         var snappedFrame = frame
 
         if let offsetX = bestSnapOffset(
@@ -562,7 +603,7 @@ struct LabelCanvasView: View {
                 frame.xDots + frame.widthDots / 2,
                 frame.xDots + frame.widthDots
             ],
-            targets: verticalSnapTargets
+            targets: verticalSnapTargets(excluding: elementID)
         ) {
             snappedFrame.xDots += offsetX
         }
@@ -573,7 +614,7 @@ struct LabelCanvasView: View {
                 frame.yDots + frame.heightDots / 2,
                 frame.yDots + frame.heightDots
             ],
-            targets: horizontalSnapTargets
+            targets: horizontalSnapTargets(excluding: elementID)
         ) {
             snappedFrame.yDots += offsetY
         }
@@ -583,49 +624,92 @@ struct LabelCanvasView: View {
 
     private func snappedFrameForResizing(
         _ frame: LabelElementFrame,
-        handle: ResizeHandle
+        handle: ResizeHandle,
+        excluding elementID: UUID,
+        minimumSize: (widthDots: Int, heightDots: Int)
     ) -> LabelElementFrame {
         var snappedFrame = frame
+        let verticalTargets = verticalSnapTargets(excluding: elementID)
+        let horizontalTargets = horizontalSnapTargets(excluding: elementID)
 
         if handle.affectsLeft,
-           let offset = bestSnapOffset(anchors: [frame.xDots], targets: verticalSnapTargets) {
+           let offset = bestSnapOffset(anchors: [frame.xDots], targets: verticalTargets) {
             snappedFrame.xDots += offset
             snappedFrame.widthDots -= offset
         }
 
         if handle.affectsRight,
-           let offset = bestSnapOffset(anchors: [frame.xDots + frame.widthDots], targets: verticalSnapTargets) {
+           let offset = bestSnapOffset(anchors: [frame.xDots + frame.widthDots], targets: verticalTargets) {
             snappedFrame.widthDots += offset
         }
 
         if handle.affectsTop,
-           let offset = bestSnapOffset(anchors: [frame.yDots], targets: horizontalSnapTargets) {
+           let offset = bestSnapOffset(anchors: [frame.yDots], targets: horizontalTargets) {
             snappedFrame.yDots += offset
             snappedFrame.heightDots -= offset
         }
 
         if handle.affectsBottom,
-           let offset = bestSnapOffset(anchors: [frame.yDots + frame.heightDots], targets: horizontalSnapTargets) {
+           let offset = bestSnapOffset(anchors: [frame.yDots + frame.heightDots], targets: horizontalTargets) {
             snappedFrame.heightDots += offset
         }
 
-        return constrainedElementFrame(snappedFrame)
+        return constrainedElementFrame(
+            snappedFrame,
+            minimumSize: minimumSize
+        )
     }
 
-    private var verticalSnapTargets: [Int] {
+    private func verticalSnapTargets(excluding elementID: UUID) -> [Int] {
         let guideTargets = document.guides
             .filter { $0.visible && $0.orientation == .vertical }
             .map { min(max($0.positionDots, 0), document.label.widthDots) }
 
-        return Array(Set([0, document.label.widthDots / 2, document.label.widthDots] + guideTargets)).sorted()
+        return Array(Set(
+            [0, document.label.widthDots / 2, document.label.widthDots]
+                + guideTargets
+                + elementVerticalSnapTargets(excluding: elementID)
+        ))
+        .sorted()
     }
 
-    private var horizontalSnapTargets: [Int] {
+    private func horizontalSnapTargets(excluding elementID: UUID) -> [Int] {
         let guideTargets = document.guides
             .filter { $0.visible && $0.orientation == .horizontal }
             .map { min(max($0.positionDots, 0), document.label.heightDots) }
 
-        return Array(Set([0, document.label.heightDots / 2, document.label.heightDots] + guideTargets)).sorted()
+        return Array(Set(
+            [0, document.label.heightDots / 2, document.label.heightDots]
+                + guideTargets
+                + elementHorizontalSnapTargets(excluding: elementID)
+        ))
+        .sorted()
+    }
+
+    private func elementVerticalSnapTargets(excluding elementID: UUID) -> [Int] {
+        document.elements
+            .filter { $0.id != elementID }
+            .flatMap { element in
+                let frame = element.frame
+                return [
+                    frame.xDots,
+                    frame.xDots + frame.widthDots / 2,
+                    frame.xDots + frame.widthDots
+                ]
+            }
+    }
+
+    private func elementHorizontalSnapTargets(excluding elementID: UUID) -> [Int] {
+        document.elements
+            .filter { $0.id != elementID }
+            .flatMap { element in
+                let frame = element.frame
+                return [
+                    frame.yDots,
+                    frame.yDots + frame.heightDots / 2,
+                    frame.yDots + frame.heightDots
+                ]
+            }
     }
 
     private func bestSnapOffset(anchors: [Int], targets: [Int]) -> Int? {
@@ -647,9 +731,12 @@ struct LabelCanvasView: View {
         return bestOffset
     }
 
-    private func constrainedElementFrame(_ frame: LabelElementFrame) -> LabelElementFrame {
-        let minWidth = minimumElementWidthDots
-        let minHeight = minimumElementHeightDots
+    private func constrainedElementFrame(
+        _ frame: LabelElementFrame,
+        minimumSize: (widthDots: Int, heightDots: Int)? = nil
+    ) -> LabelElementFrame {
+        let minWidth = minimumSize?.widthDots ?? minimumElementWidthDots
+        let minHeight = minimumSize?.heightDots ?? minimumElementHeightDots
         var x = frame.xDots
         var y = frame.yDots
         var width = max(frame.widthDots, minWidth)
@@ -1174,6 +1261,7 @@ private struct CanvasKeyEventHandler: NSViewRepresentable {
 private struct CanvasLabelElementView: View {
     let element: LabelElement
     let scale: DotViewScale
+    let variables: [VariableDefinition]
     let isSelected: Bool
 
     var body: some View {
@@ -1196,16 +1284,17 @@ private struct CanvasLabelElementView: View {
     }
 
     private func textElementView(_ element: TextLabelElement) -> some View {
-        Text(element.text)
-            .font(textFont(for: element))
-            .foregroundStyle(.primary)
-            .italic(element.isItalic)
-            .underline(element.isUnderlined)
-            .lineLimit(1)
-            .minimumScaleFactor(0.5)
-            .padding(.horizontal, 4)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: element.alignment.viewAlignment)
-            .background(Color.accentColor.opacity(isSelected ? 0.05 : 0.001))
+        InlineVariableTextView(
+            text: element.text,
+            variables: variables,
+            font: textFont(for: element),
+            isItalic: element.isItalic,
+            isUnderlined: element.isUnderlined,
+            alignment: element.alignment.viewAlignment
+        )
+        .padding(.horizontal, 4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: element.alignment.viewAlignment)
+        .background(Color.accentColor.opacity(isSelected ? 0.05 : 0.001))
     }
 
     private func textFont(for element: TextLabelElement) -> Font {
@@ -1272,6 +1361,103 @@ private struct CanvasLabelElementView: View {
                 .stroke(Color.primary.opacity(0.82), lineWidth: max(1, scale.points(fromDots: element.strokeWidthDots)))
             }
         }
+    }
+}
+
+private struct InlineVariableTextView: View {
+    let text: String
+    let variables: [VariableDefinition]
+    let font: Font
+    let isItalic: Bool
+    let isUnderlined: Bool
+    let alignment: Alignment
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                switch segment {
+                case .text(let value):
+                    if !value.isEmpty {
+                        Text(value)
+                            .font(font)
+                            .foregroundStyle(.primary)
+                            .italic(isItalic)
+                            .underline(isUnderlined)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                case .variable(let name):
+                    Text(chipTitle(for: name))
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(Color.accentColor, in: Capsule())
+                        .fixedSize(horizontal: true, vertical: false)
+                        .help("Variable: \(name)")
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+        .clipped()
+    }
+
+    private var segments: [InlineVariableTextSegment] {
+        InlineVariableTextSegment.parse(text)
+    }
+
+    private func chipTitle(for name: String) -> String {
+        variables.first { $0.name == name }?.name ?? name
+    }
+}
+
+private enum InlineVariableTextSegment: Equatable {
+    case text(String)
+    case variable(String)
+
+    static func parse(_ text: String) -> [InlineVariableTextSegment] {
+        let pattern = #"\{\{\s*([A-Za-z0-9_]+)(?::[^}]+)?\s*\}\}"#
+
+        guard let expression = try? NSRegularExpression(pattern: pattern) else {
+            return [.text(text)]
+        }
+
+        let nsText = text as NSString
+        let matches = expression.matches(
+            in: text,
+            range: NSRange(location: 0, length: nsText.length)
+        )
+
+        guard !matches.isEmpty else {
+            return [.text(text)]
+        }
+
+        var segments: [InlineVariableTextSegment] = []
+        var currentLocation = 0
+
+        for match in matches {
+            if match.range.location > currentLocation {
+                let plainRange = NSRange(
+                    location: currentLocation,
+                    length: match.range.location - currentLocation
+                )
+                segments.append(.text(nsText.substring(with: plainRange)))
+            }
+
+            if match.numberOfRanges >= 2,
+               match.range(at: 1).location != NSNotFound {
+                segments.append(.variable(nsText.substring(with: match.range(at: 1))))
+            }
+
+            currentLocation = match.range.location + match.range.length
+        }
+
+        if currentLocation < nsText.length {
+            segments.append(.text(nsText.substring(from: currentLocation)))
+        }
+
+        return segments
     }
 }
 

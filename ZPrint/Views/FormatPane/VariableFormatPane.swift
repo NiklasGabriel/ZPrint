@@ -29,12 +29,6 @@ struct VariableFormatPane: View {
                     .controlSize(.small)
                 }
 
-                PropertyRow(title: "Default") {
-                    TextField("Default", text: $variable.defaultValue)
-                        .textFieldStyle(.roundedBorder)
-                        .controlSize(.small)
-                }
-
                 PropertyRow(title: "Format") {
                     TextField("Format", text: $variable.format)
                         .textFieldStyle(.roundedBorder)
@@ -45,8 +39,12 @@ struct VariableFormatPane: View {
             }
 
             FormatSection(title: "Sequenz") {
-                IntegerPropertyField(title: "Start", value: clampedBinding(\.startValue, minimum: 1))
-                IntegerPropertyField(title: "Ende", value: clampedBinding(\.endValue, minimum: 1))
+                PropertyRow(title: "Präfix") {
+                    TextField("Optional", text: $variable.prefix)
+                        .textFieldStyle(.roundedBorder)
+                        .controlSize(.small)
+                }
+
                 IntegerPropertyField(title: "Schritt", value: clampedBinding(\.step, minimum: 1))
             }
             .disabled(variable.type != .sequence)

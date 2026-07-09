@@ -11,6 +11,7 @@ struct VariableDefinition: Codable, Equatable, Identifiable, Sendable {
     var type: VariableType
     var defaultValue: String
     var format: String
+    var prefix: String
     var startValue: Int
     var endValue: Int
     var step: Int
@@ -21,6 +22,7 @@ struct VariableDefinition: Codable, Equatable, Identifiable, Sendable {
         type: VariableType = .text,
         defaultValue: String = "",
         format: String = "",
+        prefix: String = "",
         startValue: Int = 1,
         endValue: Int = 1,
         step: Int = 1
@@ -30,6 +32,7 @@ struct VariableDefinition: Codable, Equatable, Identifiable, Sendable {
         self.type = type
         self.defaultValue = defaultValue
         self.format = format
+        self.prefix = prefix
         self.startValue = startValue
         self.endValue = endValue
         self.step = step
@@ -63,8 +66,10 @@ struct VariableDefinition: Codable, Equatable, Identifiable, Sendable {
     var chipTitle: String {
         let titleName = name.isEmpty ? "variable" : name
 
-        if type == .sequence && !format.isEmpty {
-            return "\(titleName) · \(format)"
+        if type == .sequence {
+            let numberPattern = format.isEmpty ? "#" : format
+            let displayPattern = "\(prefix)\(numberPattern)"
+            return "\(titleName) · \(displayPattern)"
         }
 
         return titleName
@@ -80,6 +85,7 @@ struct VariableDefinition: Codable, Equatable, Identifiable, Sendable {
         case type
         case defaultValue
         case format
+        case prefix
         case startValue
         case endValue
         case step
@@ -100,6 +106,7 @@ struct VariableDefinition: Codable, Equatable, Identifiable, Sendable {
             ?? VariableType(legacyValueType: container.decodeIfPresent(LegacyVariableValueType.self, forKey: .valueType))
         defaultValue = try container.decodeIfPresent(String.self, forKey: .defaultValue) ?? ""
         format = try container.decodeIfPresent(String.self, forKey: .format) ?? ""
+        prefix = try container.decodeIfPresent(String.self, forKey: .prefix) ?? ""
         startValue = try container.decodeIfPresent(Int.self, forKey: .startValue) ?? 1
         endValue = try container.decodeIfPresent(Int.self, forKey: .endValue) ?? 1
         step = try container.decodeIfPresent(Int.self, forKey: .step) ?? 1
@@ -113,6 +120,7 @@ struct VariableDefinition: Codable, Equatable, Identifiable, Sendable {
         try container.encode(type, forKey: .type)
         try container.encode(defaultValue, forKey: .defaultValue)
         try container.encode(format, forKey: .format)
+        try container.encode(prefix, forKey: .prefix)
         try container.encode(startValue, forKey: .startValue)
         try container.encode(endValue, forKey: .endValue)
         try container.encode(step, forKey: .step)

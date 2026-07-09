@@ -73,10 +73,9 @@ struct VariableEngine {
         var context: Context = [:]
 
         for variable in document.variables {
-            if !variable.defaultValue.isEmpty {
-                context[variable.name] = variable.defaultValue
-            } else if variable.type == .sequence {
-                context[variable.name] = "\(variable.startValue)"
+            if variable.type == .sequence {
+                let printRange = document.printSettings.range(for: variable)
+                context[variable.name] = "\(printRange?.startValue ?? variable.startValue)"
             } else {
                 context[variable.name] = defaultPreviewValue(for: variable.name, document: document)
             }
@@ -108,15 +107,19 @@ struct VariableEngine {
         context: Context
     ) -> String {
         if let value = context[name], !value.isEmpty {
-            return formatted(value: value, format: inlineFormat ?? variable?.format)
-        }
-
-        if let variable, !variable.defaultValue.isEmpty {
-            return formatted(value: variable.defaultValue, format: inlineFormat ?? variable.format)
+            return renderedVariableValue(
+                value,
+                inlineFormat: inlineFormat,
+                variable: variable
+            )
         }
 
         if variable?.type == .sequence || inlineFormat != nil {
-            return formatted(value: "\(variable?.startValue ?? 1)", format: inlineFormat ?? variable?.format)
+            return renderedVariableValue(
+                "\(variable?.startValue ?? 1)",
+                inlineFormat: inlineFormat,
+                variable: variable
+            )
         }
 
         switch name {
@@ -158,5 +161,22 @@ struct VariableEngine {
         }
 
         return String(format: "%0\(format.count)d", number)
+    }
+
+    private static func renderedVariableValue(
+        _ value: String,
+        inlineFormat: String?,
+        variable: VariableDefinition?
+    ) -> String {
+        let formattedValue = formatted(
+            value: value,
+            format: inlineFormat ?? variable?.format
+        )
+
+        guard let variable, variable.type == .sequence else {
+            return formattedValue
+        }
+
+        return "\(variable.prefix)\(formattedValue)"
     }
 }

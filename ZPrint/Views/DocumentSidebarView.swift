@@ -616,14 +616,12 @@ private struct VariableEditorSection: View {
                 }
             }
 
-            TextField("Default", text: $variable.defaultValue)
-                .textFieldStyle(.roundedBorder)
-
             TextField("Format", text: $variable.format)
                 .textFieldStyle(.roundedBorder)
 
-            IntegerInspectorField(title: "Start", value: clampedBinding(\.startValue, minimum: 1))
-            IntegerInspectorField(title: "Ende", value: clampedBinding(\.endValue, minimum: 1))
+            TextField("Präfix", text: $variable.prefix)
+                .textFieldStyle(.roundedBorder)
+
             IntegerInspectorField(title: "Schritt", value: clampedBinding(\.step, minimum: 1))
 
             InspectorValueRow(label: "Platzhalter", value: variable.placeholder)
@@ -634,7 +632,7 @@ private struct VariableEditorSection: View {
                 Label("Variable löschen", systemImage: "trash")
             }
             .disabled(!canDelete)
-            .help(canDelete ? "Variable löschen" : "Standardvariablen oder verwendete Variablen bleiben erhalten")
+            .help("Variable löschen")
         }
     }
 
@@ -827,8 +825,6 @@ private extension VariableDefinition {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: " ", with: "_")
         variable.step = max(1, variable.step)
-        variable.startValue = max(1, variable.startValue)
-        variable.endValue = max(1, variable.endValue)
         return variable
     }
 }

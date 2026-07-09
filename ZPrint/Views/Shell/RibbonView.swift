@@ -163,7 +163,7 @@ struct RibbonView: View {
     private var layoutTab: some View {
         Group {
             RibbonGroupView(title: "Label") {
-                VStack(alignment: .leading, spacing: 7) {
+                VStack(alignment: .center, spacing: 7) {
                     Picker("Größe", selection: labelSizeSelection) {
                         ForEach(LabelSize.standardSizes) { labelSize in
                             Text(labelSize.name).tag(labelSize.id)
@@ -174,7 +174,10 @@ struct RibbonView: View {
                     Text("\(document.label.dotsPerInch) dpi · \(document.label.widthDots) x \(document.label.heightDots) dots")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity, alignment: .center)
                 }
+                .frame(width: 224, alignment: .center)
             }
 
             RibbonGroupView(title: "Hilfslinien") {
@@ -213,7 +216,6 @@ struct RibbonView: View {
 
                     HStack(spacing: 6) {
                         RibbonButton(title: "Neu", systemImage: "plus", action: actions.addVariable)
-                        RibbonButton(title: "Standards", systemImage: "sparkles", action: actions.addStandardVariables)
                     }
                 }
             }
@@ -258,10 +260,28 @@ struct RibbonView: View {
 
     private var printTab: some View {
         Group {
-            RibbonGroupView(title: "Druckbereich") {
-                VStack(alignment: .leading, spacing: 5) {
-                    printField("Start", value: $document.printSettings.counterStart)
-                    printField("Ende", value: $document.printSettings.counterEnd)
+            RibbonGroupView(title: "Sequenzen") {
+                if sequenceVariables.isEmpty {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Keine Sequenzvariablen")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        Text("Lege eine Variable vom Typ Sequenz an.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .frame(width: 190, alignment: .leading)
+                } else {
+                    HStack(alignment: .top, spacing: 8) {
+                        ForEach(sequenceVariables) { variable in
+                            PrintVariableRangeCard(
+                                variable: variable,
+                                startValue: printRangeValueBinding(for: variable, keyPath: \.startValue),
+                                endValue: printRangeValueBinding(for: variable, keyPath: \.endValue),
+                                copiesPerValue: printRangeValueBinding(for: variable, keyPath: \.copiesPerValue)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -284,21 +304,54 @@ struct RibbonView: View {
         }
     }
 
-    private func printField(_ title: String, value: Binding<Int>) -> some View {
-        HStack {
-            Text(title)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .frame(width: 36, alignment: .leading)
-            TextField(title, value: value, format: .number)
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.small)
-                .frame(width: 72)
-        }
-    }
-
     private var selectedText: TextLabelElement? {
         selectedTextBinding?.wrappedValue
+    }
+
+    private var sequenceVariables: [VariableDefinition] {
+        document.variables.filter { $0.type == .sequence }
+    }
+
+    private func printRangeValueBinding(
+        for variable: VariableDefinition,
+        keyPath: WritableKeyPath<PrintVariableRange, Int>
+    ) -> Binding<Int> {
+        Binding(
+            get: { currentPrintRange(for: variable)[keyPath: keyPath] },
+            set: { newValue in
+                updatePrintRange(for: variable) { range in
+                    range[keyPath: keyPath] = newValue
+                }
+            }
+        )
+    }
+
+    private func currentPrintRange(for variable: VariableDefinition) -> PrintVariableRange {
+        document.printSettings.range(for: variable) ?? PrintVariableRange(
+            variableID: variable.id,
+            variableName: variable.name,
+            startValue: variable.startValue,
+            endValue: max(variable.startValue, variable.endValue),
+            copiesPerValue: 1
+        )
+    }
+
+    private func updatePrintRange(
+        for variable: VariableDefinition,
+        update: (inout PrintVariableRange) -> Void
+    ) {
+        var range = currentPrintRange(for: variable)
+        update(&range)
+        range.variableName = variable.name
+        range = range.clamped
+
+        if let index = document.printSettings.variableRanges.firstIndex(where: { $0.variableID == variable.id }) {
+            document.printSettings.variableRanges[index] = range
+        } else {
+            document.printSettings.variableRanges.append(range)
+        }
+
+        document.printSettings = document.printSettings.normalized(for: document.variables)
     }
 
     private var selectedTextBinding: Binding<TextLabelElement>? {
@@ -405,6 +458,73 @@ private struct VariableRibbonChip: View {
                 Capsule()
                     .stroke(ZPrintDesign.ColorToken.accent.opacity(0.24), lineWidth: 1)
             }
+    }
+}
+
+private struct PrintVariableRangeCard: View {
+    let variable: VariableDefinition
+    @Binding var startValue: Int
+    @Binding var endValue: Int
+    @Binding var copiesPerValue: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                VariableRibbonChip(variable: variable)
+
+                if variable.step > 1 {
+                    Text("Schritt \(variable.step)")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            HStack(spacing: 6) {
+                PrintRangeNumberField(title: "Start", value: $startValue)
+                PrintRangeNumberField(title: "Ende", value: $endValue)
+                PrintRangeNumberField(title: "je Wert", value: $copiesPerValue)
+            }
+
+            Text("\(estimatedLabelCount) Etikett\(estimatedLabelCount == 1 ? "" : "en")")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .stroke(ZPrintDesign.ColorToken.softBorder, lineWidth: 1)
+        }
+    }
+
+    private var estimatedLabelCount: Int {
+        let step = max(1, variable.step)
+        let valueCount = max(1, ((max(startValue, endValue) - startValue) / step) + 1)
+        return valueCount * max(1, copiesPerValue)
+    }
+}
+
+private struct PrintRangeNumberField: View {
+    let title: String
+    @Binding var value: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            TextField(title, value: $value, format: .number)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+                .frame(width: title == "je Wert" ? 58 : 50)
+                .monospacedDigit()
+        }
     }
 }
 

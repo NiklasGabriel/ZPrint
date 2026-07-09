@@ -282,8 +282,6 @@ private extension VariableDefinition {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: " ", with: "_")
         variable.step = max(1, variable.step)
-        variable.startValue = max(1, variable.startValue)
-        variable.endValue = max(1, variable.endValue)
         return variable
     }
 }

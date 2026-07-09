@@ -18,7 +18,7 @@ struct VariablesFormatPane: View {
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.secondary)
 
-                        Text("Lege eine Variable an oder füge Standardvariablen hinzu.")
+                        Text("Lege eine Variable an, um sie in Text- oder Barcodefeldern zu verwenden.")
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -49,15 +49,10 @@ struct VariablesFormatPane: View {
                     Label("Variable anlegen", systemImage: "plus")
                 }
                 .controlSize(.small)
-
-                Button(action: addStandardVariables) {
-                    Label("Standardvariablen hinzufügen", systemImage: "sparkles")
-                }
-                .controlSize(.small)
             }
 
             FormatSection(title: "Hinweis") {
-                Text("Wähle eine Variable aus, um Name, Typ, Format und Sequenzwerte rechts zu bearbeiten.")
+                Text("Wähle eine Variable aus, um Name, Typ, Format, Präfix und Schritt rechts zu bearbeiten.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -80,17 +75,4 @@ struct VariablesFormatPane: View {
         selectedVariableID = variable.id
     }
 
-    private func addStandardVariables() {
-        var lastAddedID: UUID?
-
-        for variable in VariableDefinition.standardVariables
-        where !document.variables.contains(where: { $0.name == variable.name }) {
-            document.variables.append(variable)
-            lastAddedID = variable.id
-        }
-
-        if let lastAddedID {
-            selectedVariableID = lastAddedID
-        }
-    }
 }
