@@ -15,12 +15,12 @@ struct AppShellView: View {
     @State private var selectedRibbonTab: RibbonTab = .home
     @State private var previewContext: VariableEngine.Context = [:]
     @State private var activeFormatPanePage: FormatPanePage = .document
+    @StateObject private var printController = PrintJobController()
 
     var body: some View {
         VStack(spacing: 0) {
             OfficeTitleBarView(
-                document: $document,
-                documentTitle: $documentTitle
+                document: $document
             )
 
             RibbonView(
@@ -29,6 +29,7 @@ struct AppShellView: View {
                 selectedGuideID: $selectedGuideID,
                 selectedTab: $selectedRibbonTab,
                 previewContext: $previewContext,
+                printController: printController,
                 actions: actions
             )
 
@@ -39,7 +40,8 @@ struct AppShellView: View {
                     selectedGuideID: $selectedGuideID,
                     selectedVariableID: $selectedVariableID,
                     previewContext: $previewContext,
-                    activeFormatPanePage: $activeFormatPanePage
+                    activeFormatPanePage: $activeFormatPanePage,
+                    printController: printController
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -50,7 +52,8 @@ struct AppShellView: View {
                     selectedElementID: $selectedElementID,
                     selectedGuideID: $selectedGuideID,
                     selectedVariableID: $selectedVariableID,
-                    activePage: $activeFormatPanePage
+                    activePage: $activeFormatPanePage,
+                    printController: printController
                 )
             }
 
@@ -106,6 +109,9 @@ struct AppShellView: View {
         .onChange(of: document.printSettings) { _, _ in
             normalizePreviewContext()
         }
+        .task {
+            await printController.refreshPrinters()
+        }
     }
 
     private var actions: RibbonActions {
@@ -154,6 +160,7 @@ struct AppShellView: View {
 
         if let selectedVariableID {
             document.variables.removeAll { $0.id == selectedVariableID }
+            document.printSettings = document.printSettings.normalized(for: document.variables)
             self.selectedVariableID = nil
         }
     }
@@ -269,6 +276,7 @@ struct AppShellView: View {
 
         let variable = VariableDefinition(name: name)
         document.variables.append(variable)
+        document.printSettings = document.printSettings.normalized(for: document.variables)
         selectedElementID = nil
         selectedGuideID = nil
         selectedVariableID = variable.id

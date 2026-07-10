@@ -7,57 +7,18 @@ import SwiftUI
 
 struct OfficeTitleBarView: View {
     @Binding var document: ZPrintDocument
-    @Binding var documentTitle: String
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        ZStack {
-            HStack(spacing: 8) {
-                Image(systemName: "tag")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(ZPrintDesign.ColorToken.accent)
+        HStack(spacing: 10) {
+            Spacer()
 
-                TextField("Dokumentname", text: $documentTitle)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 14, weight: .semibold))
-                    .multilineTextAlignment(.center)
-                    .lineLimit(1)
-                    .frame(width: 300)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 5)
-            .background {
-                Capsule()
-                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.54))
-            }
-            .overlay {
-                Capsule()
-                    .stroke(ZPrintDesign.ColorToken.hairline, lineWidth: 1)
-            }
-            .help("Dokumenttitel")
+            modeBadge
 
-            HStack {
-                Spacer()
-                    .frame(width: 96)
-
-                Spacer()
-
-                Label(document.viewSettings.mode.displayName, systemImage: document.viewSettings.mode.systemImageName)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .labelStyle(.titleAndIcon)
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 6)
-                    .background {
-                        Capsule()
-                            .fill(ZPrintDesign.ColorToken.subtlePanelBackground)
-                    }
-                    .overlay {
-                        Capsule()
-                            .stroke(ZPrintDesign.ColorToken.hairline, lineWidth: 1)
-                    }
-            }
-            .padding(.trailing, 14)
+            homeButton
+                .padding(.trailing, 18)
         }
+        .frame(maxWidth: .infinity)
         .frame(height: ZPrintDesign.Metric.titleBarHeight)
         .background {
             Rectangle()
@@ -69,5 +30,28 @@ struct OfficeTitleBarView: View {
                 .fill(ZPrintDesign.ColorToken.softBorder)
                 .frame(height: 1)
         }
+    }
+
+    private var homeButton: some View {
+        Button {
+            DocumentLauncher.shared.showStartScreen()
+            openWindow(id: ZPrintApp.startWindowID)
+        } label: {
+            Image(systemName: "house")
+                .font(.system(size: 13, weight: .regular))
+                .frame(width: 24, height: 24)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .contentShape(Rectangle())
+        .help("Startbildschirm anzeigen")
+    }
+
+    private var modeBadge: some View {
+        Label(document.viewSettings.mode.displayName, systemImage: document.viewSettings.mode.systemImageName)
+            .font(.system(size: 12, weight: .regular))
+            .foregroundStyle(.secondary)
+            .labelStyle(.titleAndIcon)
+            .padding(.vertical, 4)
     }
 }

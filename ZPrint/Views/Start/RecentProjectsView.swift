@@ -6,13 +6,44 @@
 import SwiftUI
 
 struct RecentProjectsView: View {
+    let projects: [RecentProject]
+    let openProject: (RecentProject) -> Void
+    let reloadProjects: () -> Void
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Zuletzt verwendet")
-                .font(.system(size: 17, weight: .semibold))
+            HStack {
+                Text("Zuletzt verwendet")
+                    .font(.system(size: 17, weight: .semibold))
 
-            VStack(spacing: 8) {
-                RecentProjectRow(title: "Noch keine Projekte", subtitle: "DocumentGroup übernimmt Öffnen und Speichern")
+                Spacer()
+
+                Button {
+                    reloadProjects()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Liste aktualisieren")
+            }
+
+            if projects.isEmpty {
+                emptyState
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(projects) { project in
+                            RecentProjectRow(project: project) {
+                                openProject(project)
+                            }
+                        }
+                    }
+                    .padding(.trailing, 2)
+                }
+                .scrollIndicators(.never)
             }
 
             Spacer()
@@ -26,35 +57,23 @@ struct RecentProjectsView: View {
                 .frame(width: 1)
         }
     }
-}
 
-private struct RecentProjectRow: View {
-    let title: String
-    let subtitle: String
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Image(systemName: "clock")
+                .font(.system(size: 24, weight: .medium))
+                .foregroundStyle(ZPrintDesign.ColorToken.secondaryText)
 
-    var body: some View {
-        HStack(spacing: 10) {
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(ZPrintDesign.ColorToken.accent.opacity(0.13))
-                .frame(width: 36, height: 36)
-                .overlay {
-                    Image(systemName: "tag")
-                        .foregroundStyle(ZPrintDesign.ColorToken.accent)
-                }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-                Text(subtitle)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
+            Text("Noch keine zuletzt verwendeten Projekte.")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(8)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(ZPrintDesign.ColorToken.panelBackground.opacity(0.55))
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(ZPrintDesign.ColorToken.panelBackground.opacity(0.52))
         }
     }
 }

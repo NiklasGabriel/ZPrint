@@ -32,9 +32,9 @@ struct RibbonGroupView<Content: View>: View {
         }
         .overlay(alignment: .trailing) {
             Rectangle()
-                .fill(ZPrintDesign.ColorToken.hairline)
+                .fill(ZPrintDesign.ColorToken.ribbonSeparator)
                 .frame(width: 1)
-                .padding(.vertical, 8)
+                .padding(.vertical, 7)
         }
     }
 }

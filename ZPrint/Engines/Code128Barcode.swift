@@ -26,6 +26,24 @@ struct Code128Barcode {
         }
     }
 
+    static func totalModules(for value: String) -> Int {
+        segments(for: value).reduce(0) { $0 + $1.widthModules }
+    }
+
+    static func moduleWidthFitting(
+        value: String,
+        widthDots: Int,
+        fallbackModuleWidth: Int
+    ) -> Int {
+        let totalModules = totalModules(for: value)
+        guard totalModules > 0 else {
+            return max(1, fallbackModuleWidth)
+        }
+
+        let fittedWidth = Int((Double(max(1, widthDots)) / Double(totalModules)).rounded())
+        return min(12, max(1, fittedWidth))
+    }
+
     private static func code128BValues(for value: String) -> [Int] {
         value.unicodeScalars.map { scalar in
             let ascii = Int(scalar.value)

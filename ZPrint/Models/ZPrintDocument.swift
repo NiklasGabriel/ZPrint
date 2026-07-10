@@ -102,15 +102,17 @@ struct ZPrintDocument: FileDocument, Codable, Equatable, Sendable {
 
     static func standardNewDocument() -> ZPrintDocument {
         let labelSize = LabelSize.standard51x25mm300dpi
+        let variables: [VariableDefinition] = []
+        let printSettings = PrintSettings.standard.normalized(for: variables)
 
         return ZPrintDocument(
             documentName: "Untitled Label",
             labelSizeId: labelSize.id,
             label: labelSize,
             elements: [],
-            variables: [],
+            variables: variables,
             guides: [],
-            printSettings: .standard,
+            printSettings: printSettings,
             viewSettings: .standard
         )
     }

@@ -13,6 +13,7 @@ struct RightFormatPaneView: View {
     @Binding var selectedGuideID: UUID?
     @Binding var selectedVariableID: UUID?
     @Binding var activePage: FormatPanePage
+    @ObservedObject var printController: PrintJobController
 
     var body: some View {
         VStack(spacing: 0) {
@@ -135,10 +136,9 @@ struct RightFormatPaneView: View {
                 systemImage: "eye"
             )
         } else if activePage == .print {
-            FormatPaneEmptyState(
-                title: "Drucken aktiv",
-                message: "Drucker, ZPL-Export und Raw-Druckauftrag werden im Arbeitsbereich links gesteuert.",
-                systemImage: "printer"
+            PrintFormatPane(
+                document: $document,
+                printController: printController
             )
         } else if let variable = selectedVariableBinding {
             VariableFormatPane(
@@ -243,6 +243,7 @@ struct RightFormatPaneView: View {
                     return
                 }
                 document.variables[index] = updatedVariable.normalizedForFormatPane
+                document.printSettings = document.printSettings.normalized(for: document.variables)
             }
         )
     }
@@ -307,6 +308,7 @@ struct RightFormatPaneView: View {
         }
 
         document.variables.removeAll { $0.id == selectedVariableID }
+        document.printSettings = document.printSettings.normalized(for: document.variables)
         self.selectedVariableID = nil
     }
 }

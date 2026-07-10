@@ -10,7 +10,7 @@ struct VariableEngine {
 
     var variables: [VariableDefinition]
 
-    init(variables: [VariableDefinition] = VariableDefinition.standardVariables) {
+    init(variables: [VariableDefinition] = []) {
         self.variables = variables
     }
 
@@ -21,7 +21,7 @@ struct VariableEngine {
     static func renderTemplateString(
         _ text: String,
         context: Context = [:],
-        variables: [VariableDefinition] = VariableDefinition.standardVariables
+        variables: [VariableDefinition] = []
     ) -> String {
         let pattern = #"\{\{\s*([A-Za-z0-9_]+)(?::([^}]+))?\s*\}\}"#
 
@@ -101,26 +101,26 @@ struct VariableEngine {
     }
 
     static func batchContexts(for document: ZPrintDocument) -> [Context] {
-        let sequenceVariables = document.variables.filter { $0.type == .sequence }
-
-        guard !sequenceVariables.isEmpty else {
+        guard let runningVariable = document.printSettings.runningVariable(in: document.variables),
+              runningVariable.type == .sequence else {
             return fallbackCounterContexts(for: document)
         }
 
         var baseContext = Context()
-        for variable in document.variables where variable.type == .text {
-            baseContext[variable.name] = defaultTextValue(for: variable)
+        for variable in document.variables where variable.id != runningVariable.id {
+            baseContext[variable.name] = rawPrintValue(for: variable, document: document)
         }
 
-        let variableValues = sequenceVariables.map { variable in
-            values(for: variable, document: document)
+        let values = values(for: runningVariable, document: document)
+        guard !values.isEmpty else {
+            return []
         }
 
-        return combinedContexts(
-            baseContext: baseContext,
-            variables: sequenceVariables,
-            values: variableValues
-        )
+        return values.map { value in
+            var context = baseContext
+            context[runningVariable.name] = value
+            return context
+        }
     }
 
     private static func renderedValue(
@@ -256,6 +256,33 @@ struct VariableEngine {
         default:
             return ""
         }
+    }
+
+    static func rawPrintValue(
+        for variable: VariableDefinition,
+        document: ZPrintDocument
+    ) -> String {
+        if let value = document.printSettings.printVariableValues[variable.id] {
+            return value
+        }
+
+        if variable.type == .sequence {
+            let range = document.printSettings.range(for: variable)
+            return "\(range?.startValue ?? variable.startValue)"
+        }
+
+        return defaultTextValue(for: variable)
+    }
+
+    static func renderedPrintValue(
+        for variable: VariableDefinition,
+        document: ZPrintDocument
+    ) -> String {
+        renderTemplateString(
+            variable.placeholder,
+            context: [variable.name: rawPrintValue(for: variable, document: document)],
+            variables: [variable]
+        )
     }
 
     private static func defaultPreviewValue(for name: String, document: ZPrintDocument) -> String {

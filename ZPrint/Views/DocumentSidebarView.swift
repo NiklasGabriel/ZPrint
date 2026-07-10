@@ -259,6 +259,7 @@ struct DocumentSidebarView: View {
                 }
 
                 document.variables[index] = updatedVariable.normalized
+                document.printSettings = document.printSettings.normalized(for: document.variables)
             }
         )
     }
@@ -275,11 +276,13 @@ struct DocumentSidebarView: View {
 
         let variable = VariableDefinition(name: name)
         document.variables.append(variable)
+        document.printSettings = document.printSettings.normalized(for: document.variables)
         selectedVariableID = variable.id
     }
 
     private func deleteVariable(id: UUID) {
         document.variables.removeAll { $0.id == id }
+        document.printSettings = document.printSettings.normalized(for: document.variables)
 
         if selectedVariableID == id {
             selectedVariableID = document.variables.first?.id
@@ -720,9 +723,15 @@ struct VariableChipView: View {
     let variable: VariableDefinition
     var isSelected = false
     var isCompact = false
+    var isRunning = false
 
     var body: some View {
         HStack(spacing: 4) {
+            if isRunning {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: isCompact ? 8 : 9, weight: .bold))
+            }
+
             Text(variable.name.isEmpty ? "variable" : variable.name)
                 .font(.system(size: isCompact ? 10 : 11, weight: .medium))
                 .lineLimit(1)
@@ -738,13 +747,29 @@ struct VariableChipView: View {
         .padding(.vertical, isCompact ? 4 : 5)
         .background {
             Capsule()
-                .fill(isSelected ? ZPrintDesign.ColorToken.selectedFill : Color(nsColor: .controlBackgroundColor).opacity(0.78))
+                .fill(chipFill)
         }
         .overlay {
             Capsule()
-                .stroke(isSelected ? ZPrintDesign.ColorToken.accent.opacity(0.38) : ZPrintDesign.ColorToken.softBorder, lineWidth: 1)
+                .stroke(chipStroke, lineWidth: 1)
         }
-        .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+        .foregroundStyle(isRunning ? Color.orange.opacity(0.92) : (isSelected ? Color.accentColor : Color.primary))
+    }
+
+    private var chipFill: Color {
+        if isRunning {
+            return Color.orange.opacity(isSelected ? 0.22 : 0.16)
+        }
+
+        return isSelected ? ZPrintDesign.ColorToken.selectedFill : Color(nsColor: .controlBackgroundColor).opacity(0.78)
+    }
+
+    private var chipStroke: Color {
+        if isRunning {
+            return Color.orange.opacity(0.46)
+        }
+
+        return isSelected ? ZPrintDesign.ColorToken.accent.opacity(0.38) : ZPrintDesign.ColorToken.softBorder
     }
 }
 

@@ -11,6 +11,7 @@ struct RibbonView: View {
     @Binding var selectedGuideID: UUID?
     @Binding var selectedTab: RibbonTab
     @Binding var previewContext: VariableEngine.Context
+    @ObservedObject var printController: PrintJobController
     let actions: RibbonActions
 
     var body: some View {
@@ -262,8 +263,7 @@ struct RibbonView: View {
             RibbonGroupView(title: "Vorschauwerte") {
                 PreviewRibbonContextView(
                     variables: document.variables,
-                    context: $previewContext,
-                    reset: resetPreviewContext
+                    context: $previewContext
                 )
             }
         }
@@ -271,25 +271,55 @@ struct RibbonView: View {
 
     private var printTab: some View {
         Group {
-            RibbonGroupView(title: "Sequenzen") {
-                if sequenceVariables.isEmpty {
+            RibbonGroupView(title: "Druckbereich") {
+                if let runningVariable {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            RunningVariableChip(variable: runningVariable)
+
+                            if runningVariable.step > 1 {
+                                Text("Schritt \(runningVariable.step)")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
+                        HStack(spacing: 6) {
+                            PrintRangeNumberField(title: "Start", value: runningRangeValueBinding(\.startValue))
+                            PrintRangeNumberField(title: "Ende", value: runningRangeValueBinding(\.endValue))
+                            PrintRangeNumberField(title: "je Wert", value: runningRangeValueBinding(\.copiesPerValue))
+                        }
+                    }
+                } else {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("Keine Sequenzvariablen")
+                        Text("Keine Laufvariable")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.secondary)
-                        Text("Lege eine Variable vom Typ Sequenz an.")
+                        Text("Lege eine Sequenzvariable an.")
                             .font(.system(size: 11))
                             .foregroundStyle(.tertiary)
                     }
                     .frame(width: 190, alignment: .leading)
+                }
+            }
+
+            RibbonGroupView(title: "Variablen") {
+                if nonRunningPrintVariables.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Keine weiteren Variablen")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        Text("Nur die Laufvariable ist aktiv.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .frame(width: 174, alignment: .leading)
                 } else {
-                    HStack(alignment: .top, spacing: 8) {
-                        ForEach(sequenceVariables) { variable in
-                            PrintVariableRangeCard(
+                    HStack(spacing: 6) {
+                        ForEach(nonRunningPrintVariables) { variable in
+                            PrintVariableValueField(
                                 variable: variable,
-                                startValue: printRangeValueBinding(for: variable, keyPath: \.startValue),
-                                endValue: printRangeValueBinding(for: variable, keyPath: \.endValue),
-                                copiesPerValue: printRangeValueBinding(for: variable, keyPath: \.copiesPerValue)
+                                value: printVariableValueBinding(for: variable)
                             )
                         }
                     }
@@ -297,9 +327,38 @@ struct RibbonView: View {
             }
 
             RibbonGroupView(title: "Ausgabe") {
-                RibbonLargeButton(title: "Drucken", systemImage: "printer", isDisabled: true) {}
-                RibbonLargeButton(title: "ZPL", systemImage: "doc.on.doc", isDisabled: true) {}
-                RibbonLargeButton(title: "Export", systemImage: "square.and.arrow.up", isDisabled: true) {}
+                RibbonLargeButton(
+                    title: "Drucken",
+                    systemImage: "printer",
+                    isDisabled: printHasBlockingErrors
+                ) {
+                    Task {
+                        await printController.sendPrintJob(for: document)
+                    }
+                }
+                RibbonLargeButton(
+                    title: "ZPL kopieren",
+                    systemImage: "doc.on.doc",
+                    isDisabled: printHasBlockingErrors
+                ) {
+                    printController.copyZPL(for: document)
+                }
+                RibbonLargeButton(
+                    title: "Export",
+                    systemImage: "square.and.arrow.down",
+                    isDisabled: printHasBlockingErrors
+                ) {
+                    printController.exportZPL(for: document)
+                }
+                RibbonLargeButton(
+                    title: "PDF",
+                    systemImage: "doc.richtext",
+                    isDisabled: printHasBlockingErrors || printController.isRenderingPDF
+                ) {
+                    Task {
+                        await printController.renderPDF(for: document)
+                    }
+                }
             }
         }
     }
@@ -321,6 +380,65 @@ struct RibbonView: View {
 
     private var sequenceVariables: [VariableDefinition] {
         document.variables.filter { $0.type == .sequence }
+    }
+
+    private var runningVariable: VariableDefinition? {
+        document.printSettings.runningVariable(in: document.variables)
+            .flatMap { $0.type == .sequence ? $0 : sequenceVariables.first }
+    }
+
+    private var nonRunningPrintVariables: [VariableDefinition] {
+        document.variables.filter { variable in
+            variable.id != runningVariable?.id
+        }
+    }
+
+    private func printVariableValueBinding(for variable: VariableDefinition) -> Binding<String> {
+        Binding(
+            get: {
+                document.printSettings.printVariableValues[variable.id]
+                    ?? VariableEngine.rawPrintValue(for: variable, document: document)
+            },
+            set: { newValue in
+                document.printSettings.printVariableValues[variable.id] = newValue
+                document.printSettings = document.printSettings.normalized(for: document.variables)
+            }
+        )
+    }
+
+    private var printHasBlockingErrors: Bool {
+        ZPLEngine.diagnostics(for: document).contains { $0.level == .error }
+            || ZPLEngine.generateBatchZPL(document: document).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func runningRangeValueBinding(_ keyPath: WritableKeyPath<PrintVariableRange, Int>) -> Binding<Int> {
+        Binding(
+            get: {
+                guard let runningVariable else {
+                    return keyPath == \PrintVariableRange.copiesPerValue
+                        ? document.printSettings.copiesPerNumber
+                        : document.printSettings.counterStart
+                }
+
+                return currentPrintRange(for: runningVariable)[keyPath: keyPath]
+            },
+            set: { newValue in
+                guard let runningVariable else {
+                    if keyPath == \PrintVariableRange.startValue {
+                        document.printSettings.counterStart = newValue
+                    } else if keyPath == \PrintVariableRange.endValue {
+                        document.printSettings.counterEnd = newValue
+                    } else {
+                        document.printSettings.copiesPerNumber = newValue
+                    }
+                    return
+                }
+
+                updatePrintRange(for: runningVariable) { range in
+                    range[keyPath: keyPath] = newValue
+                }
+            }
+        )
     }
 
     private func printRangeValueBinding(
@@ -462,6 +580,7 @@ struct RibbonView: View {
 
 private struct VariableRibbonChip: View {
     let variable: VariableDefinition
+    var isRunning = false
 
     var body: some View {
         Text(variable.chipTitle)
@@ -470,12 +589,59 @@ private struct VariableRibbonChip: View {
             .padding(.vertical, 4)
             .background {
                 Capsule()
-                    .fill(ZPrintDesign.ColorToken.accent.opacity(0.10))
+                    .fill(isRunning ? Color.orange.opacity(0.16) : ZPrintDesign.ColorToken.accent.opacity(0.10))
             }
             .overlay {
                 Capsule()
-                    .stroke(ZPrintDesign.ColorToken.accent.opacity(0.24), lineWidth: 1)
+                    .stroke(isRunning ? Color.orange.opacity(0.46) : ZPrintDesign.ColorToken.accent.opacity(0.24), lineWidth: 1)
             }
+            .foregroundStyle(isRunning ? Color.orange.opacity(0.92) : Color.primary)
+    }
+}
+
+private struct RunningVariableChip: View {
+    let variable: VariableDefinition
+
+    var body: some View {
+        Label {
+            Text(variable.chipTitle)
+                .font(.system(size: 11, weight: .semibold))
+                .lineLimit(1)
+        } icon: {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 10, weight: .bold))
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background {
+            Capsule()
+                .fill(Color.orange.opacity(0.16))
+        }
+        .overlay {
+            Capsule()
+                .stroke(Color.orange.opacity(0.46), lineWidth: 1)
+        }
+        .foregroundStyle(Color.orange.opacity(0.92))
+        .help("Aktive Laufvariable")
+    }
+}
+
+private struct PrintVariableValueField: View {
+    let variable: VariableDefinition
+    @Binding var value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VariableRibbonChip(variable: variable)
+
+            TextField(variable.name.isEmpty ? "Wert" : variable.name, text: $value)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+                .font(.system(size: 11))
+                .frame(width: 136)
+        }
+        .frame(width: 144, height: 54, alignment: .topLeading)
+        .help("\(variable.name): Druckwert")
     }
 }
 
@@ -631,14 +797,9 @@ private struct RibbonFontSizeControl: View {
 private struct PreviewRibbonContextView: View {
     let variables: [VariableDefinition]
     @Binding var context: VariableEngine.Context
-    let reset: () -> Void
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            Label("Werte", systemImage: "eye")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.primary)
-
             if variables.isEmpty {
                 Text("Keine Variablen")
                     .font(.system(size: 12))
@@ -654,24 +815,6 @@ private struct PreviewRibbonContextView: View {
                     }
                 }
             }
-
-            Button(action: reset) {
-                Label("Zurücksetzen", systemImage: "arrow.counterclockwise")
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(height: ZPrintDesign.Metric.buttonHeight)
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 8)
-            .background {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(ZPrintDesign.ColorToken.softBorder, lineWidth: 1)
-            }
-            .disabled(variables.isEmpty)
-            .opacity(variables.isEmpty ? 0.45 : 1)
         }
     }
 

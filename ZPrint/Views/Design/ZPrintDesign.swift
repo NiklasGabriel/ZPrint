@@ -15,6 +15,7 @@ enum ZPrintDesign {
         static let border = Color(nsColor: .separatorColor).opacity(0.62)
         static let softBorder = Color(nsColor: .separatorColor).opacity(0.36)
         static let hairline = Color(nsColor: .separatorColor).opacity(0.20)
+        static let ribbonSeparator = Color(nsColor: .separatorColor).opacity(0.46)
         static let hoverFill = Color(nsColor: .selectedControlColor).opacity(0.08)
         static let selectedFill = Color.accentColor.opacity(0.13)
         static let secondaryText = Color(nsColor: .secondaryLabelColor)
@@ -22,7 +23,7 @@ enum ZPrintDesign {
     }
 
     enum Metric {
-        static let titleBarHeight: CGFloat = 44
+        static let titleBarHeight: CGFloat = 34
         static let ribbonTabHeight: CGFloat = 31
         static let ribbonContentHeight: CGFloat = 98
         static let statusBarHeight: CGFloat = 32

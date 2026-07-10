@@ -12,6 +12,7 @@ struct ZPrintWorkspaceView: View {
     @Binding var selectedVariableID: UUID?
     @Binding var previewContext: VariableEngine.Context
     @Binding var activeFormatPanePage: FormatPanePage
+    @ObservedObject var printController: PrintJobController
 
     var body: some View {
         Group {
@@ -30,7 +31,10 @@ struct ZPrintWorkspaceView: View {
                     previewContext: $previewContext
                 )
             case .print:
-                PrintWorkspaceView(document: $document)
+                PrintWorkspaceView(
+                    document: $document,
+                    printController: printController
+                )
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))

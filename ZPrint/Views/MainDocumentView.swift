@@ -27,7 +27,13 @@ struct MainDocumentView: View {
         )
         .frame(minWidth: 1100, minHeight: 660)
         .background(ZPrintDesign.ColorToken.appBackground)
-        .background(WindowChromeConfigurator().frame(width: 0, height: 0))
+        .background(
+            WindowChromeConfigurator(
+                title: document.documentName,
+                representedURL: knownFileURL ?? fileURL
+            )
+            .frame(width: 0, height: 0)
+        )
         .background {
             DocumentWindowAccessor { resolvedDocument in
                 nsDocument = resolvedDocument
@@ -38,7 +44,6 @@ struct MainDocumentView: View {
             .frame(width: 0, height: 0)
         }
         .ignoresSafeArea(.container, edges: .top)
-        .toolbar(.hidden)
         .onAppear {
             synchronizeDocumentName(with: fileURL)
         }

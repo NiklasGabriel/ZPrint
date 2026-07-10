@@ -50,7 +50,16 @@ struct ZPLEngine {
     static func diagnostics(for document: ZPrintDocument) -> [ZPLDiagnostic] {
         var diagnostics: [ZPLDiagnostic] = []
 
-        if document.printSettings.counterEnd < document.printSettings.counterStart {
+        if let runningRange = document.printSettings.runningRange(for: document.variables),
+           runningRange.endValue < runningRange.startValue {
+            diagnostics.append(
+                ZPLDiagnostic(
+                    level: .error,
+                    message: "Die Endnummer ist kleiner als die Startnummer."
+                )
+            )
+        } else if document.printSettings.runningRange(for: document.variables) == nil,
+                  document.printSettings.counterEnd < document.printSettings.counterStart {
             diagnostics.append(
                 ZPLDiagnostic(
                     level: .error,
@@ -59,19 +68,14 @@ struct ZPLEngine {
             )
         }
 
-        for variable in document.variables where variable.type == .sequence {
-            let range = document.printSettings.range(for: variable)
-            let startValue = range?.startValue ?? variable.startValue
-            let endValue = range?.endValue ?? variable.endValue
-
-            if endValue < startValue {
-                diagnostics.append(
-                    ZPLDiagnostic(
-                        level: .error,
-                        message: "Die Variable \(variable.name) hat einen Endwert kleiner als den Startwert."
-                    )
+        if document.printSettings.runningVariable(in: document.variables)?.type != .sequence,
+           !document.variables.isEmpty {
+            diagnostics.append(
+                ZPLDiagnostic(
+                    level: .warning,
+                    message: "Es ist keine Sequenz-Laufvariable aktiv."
                 )
-            }
+            )
         }
 
         for element in document.elements {
@@ -97,7 +101,7 @@ struct ZPLEngine {
         let frame = element.frame
         let renderedText = variableEngine.renderTemplateString(element.text, context: context)
         let height = max(1, element.fontSizeDots)
-        let width = max(1, Int(Double(height) * 0.72))
+        let width = max(1, Int(Double(height) * 0.96))
         let orientation = zplOrientation(for: element.rotation)
         let alignment = zplAlignment(for: element.alignment)
 
@@ -124,13 +128,20 @@ struct ZPLEngine {
         let value = renderedValue.isEmpty ? "EMPTY" : renderedValue
         let orientation = zplOrientation(for: element.rotation)
         let humanReadable = element.showsHumanReadableText ? "Y" : "N"
+        let moduleWidth = Code128Barcode.moduleWidthFitting(
+            value: value,
+            widthDots: frame.widthDots,
+            fallbackModuleWidth: element.moduleWidth
+        )
+        let humanReadableReserve = element.showsHumanReadableText ? 24 : 0
+        let barHeight = max(1, frame.heightDots - humanReadableReserve)
 
         switch element.symbology {
         case .code128:
             return [
                 "^FO\(frame.xDots),\(frame.yDots)",
-                "^BY\(max(1, element.moduleWidth))",
-                "^BC\(orientation),\(max(1, frame.heightDots)),\(humanReadable),N,N",
+                "^BY\(moduleWidth)",
+                "^BC\(orientation),\(barHeight),\(humanReadable),N,N",
                 "^FH\\^FD\(escapeFieldData(value))^FS"
             ]
         case .ean13, .qrCode:

@@ -202,7 +202,7 @@ struct LabelCanvasView: View {
                     editingTextElementID = nil
                     focusKeyboardShortcuts()
                 }
-                .gesture(dragGesture(for: element))
+                .highPriorityGesture(dragGesture(for: element))
             }
 
             if selectedElementID == element.id {
@@ -1418,7 +1418,7 @@ private struct ResizeHandlesOverlay<HandleGesture: Gesture>: View {
             ForEach(ResizeHandle.allCases, id: \.self) { handle in
                 ResizeHandleView(handle: handle)
                     .position(position(for: handle, in: proxy.size))
-                    .gesture(resizeGesture(handle))
+                    .highPriorityGesture(resizeGesture(handle))
             }
         }
         .allowsHitTesting(true)

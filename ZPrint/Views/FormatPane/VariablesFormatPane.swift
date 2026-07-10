@@ -35,7 +35,8 @@ struct VariablesFormatPane: View {
                             } label: {
                                 VariableChipView(
                                     variable: variable,
-                                    isSelected: selectedVariableID == variable.id
+                                    isSelected: selectedVariableID == variable.id,
+                                    isRunning: document.printSettings.runningVariableID == variable.id
                                 )
                             }
                             .buttonStyle(.plain)
@@ -51,6 +52,20 @@ struct VariablesFormatPane: View {
                 }
                 .controlSize(.small)
                 .buttonStyle(.bordered)
+
+                if let selectedVariable {
+                    Button {
+                        document.printSettings.runningVariableID = selectedVariable.id
+                        document.printSettings = document.printSettings.normalized(for: document.variables)
+                    } label: {
+                        Label("Als Laufvariable setzen", systemImage: "arrow.triangle.2.circlepath")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+                    .disabled(selectedVariable.type != .sequence)
+                    .help("Nur Sequenzvariablen können als Laufvariable drucken.")
+                }
             }
 
             FormatSection(title: "Hinweis") {
@@ -74,7 +89,16 @@ struct VariablesFormatPane: View {
 
         let variable = VariableDefinition(name: name)
         document.variables.append(variable)
+        document.printSettings = document.printSettings.normalized(for: document.variables)
         selectedVariableID = variable.id
+    }
+
+    private var selectedVariable: VariableDefinition? {
+        guard let selectedVariableID else {
+            return nil
+        }
+
+        return document.variables.first { $0.id == selectedVariableID }
     }
 
 }
