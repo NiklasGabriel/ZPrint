@@ -33,7 +33,6 @@ struct ZPrintApp: App {
             )
         }
         .defaultSize(width: 1280, height: 820)
-        .defaultLaunchBehavior(.suppressed)
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unifiedCompact)
         .commands {
@@ -43,6 +42,10 @@ struct ZPrintApp: App {
 }
 
 private final class ZPrintApplicationDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
+        false
+    }
+
     func applicationWillFinishLaunching(_ notification: Notification) {
         installApplicationIcon()
     }
