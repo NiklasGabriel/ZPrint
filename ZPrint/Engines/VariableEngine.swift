@@ -73,7 +73,9 @@ struct VariableEngine {
         var context: Context = [:]
 
         for variable in document.variables {
-            if variable.type == .sequence {
+            if variable.type == .tableLookup {
+                continue
+            } else if variable.type == .sequence {
                 let printRange = document.printSettings.range(for: variable)
                 context[variable.name] = "\(printRange?.startValue ?? variable.startValue)"
             } else {
@@ -81,7 +83,7 @@ struct VariableEngine {
             }
         }
 
-        return context
+        return resolvedContext(context, for: document)
     }
 
     static func normalizedPreviewContext(
@@ -97,21 +99,24 @@ struct VariableEngine {
             normalized[key] = value
         }
 
-        return normalized
+        return resolvedContext(normalized, for: document)
     }
 
-    static func batchContexts(for document: ZPrintDocument) -> [Context] {
+    static func batchContexts(
+        for document: ZPrintDocument,
+        limit: Int? = nil
+    ) -> [Context] {
         guard let runningVariable = document.printSettings.runningVariable(in: document.variables),
               runningVariable.type == .sequence else {
-            return fallbackCounterContexts(for: document)
+            return fallbackCounterContexts(for: document, limit: limit)
         }
 
         var baseContext = Context()
-        for variable in document.variables where variable.id != runningVariable.id {
+        for variable in document.variables where variable.id != runningVariable.id && variable.type != .tableLookup {
             baseContext[variable.name] = rawPrintValue(for: variable, document: document)
         }
 
-        let values = values(for: runningVariable, document: document)
+        let values = values(for: runningVariable, document: document, limit: limit)
         guard !values.isEmpty else {
             return []
         }
@@ -119,8 +124,65 @@ struct VariableEngine {
         return values.map { value in
             var context = baseContext
             context[runningVariable.name] = value
-            return context
+            return resolvedContext(context, for: document)
         }
+    }
+
+    static func resolvedContext(_ context: Context, for document: ZPrintDocument) -> Context {
+        var resolved = context
+
+        for variable in document.variables where variable.type == .tableLookup {
+            guard let lookup = variable.tableLookup,
+                  let sourceVariableID = lookup.sourceVariableID,
+                  let sourceVariable = document.variables.first(where: { $0.id == sourceVariableID }),
+                  let tableSourceID = lookup.tableSourceID,
+                  let tableSource = document.tableSources.first(where: { $0.id == tableSourceID }),
+                  let sheet = tableSource.sheet(named: lookup.sheetName) else {
+                resolved[variable.name] = lookupFallback(for: variable)
+                continue
+            }
+
+            let rawSourceValue = resolved[sourceVariable.name]
+                ?? rawPrintValue(for: sourceVariable, document: document)
+            let renderedSourceValue = renderedVariableValue(
+                rawSourceValue,
+                inlineFormat: nil,
+                variable: sourceVariable
+            )
+            resolved[variable.name] = sheet.value(
+                matching: renderedSourceValue,
+                keyColumn: lookup.keyColumn,
+                valueColumn: lookup.valueColumn,
+                caseSensitive: lookup.caseSensitive
+            ) ?? lookupFallback(for: variable)
+        }
+
+        return resolved
+    }
+
+    static func estimatedBatchLabelCount(for document: ZPrintDocument) -> Int {
+        guard let runningVariable = document.printSettings.runningVariable(in: document.variables),
+              runningVariable.type == .sequence else {
+            guard document.printSettings.counterEnd >= document.printSettings.counterStart else {
+                return 0
+            }
+
+            return ((document.printSettings.counterEnd - document.printSettings.counterStart) + 1)
+                * max(1, document.printSettings.copiesPerNumber)
+        }
+
+        let range = document.printSettings.range(for: runningVariable)
+        let startValue = range?.startValue ?? runningVariable.startValue
+        let endValue = range?.endValue ?? max(runningVariable.startValue, runningVariable.endValue)
+        let copiesPerValue = max(1, range?.copiesPerValue ?? 1)
+        let step = max(1, runningVariable.step)
+
+        guard endValue >= startValue else {
+            return 0
+        }
+
+        let valueCount = ((endValue - startValue) / step) + 1
+        return valueCount * copiesPerValue
     }
 
     private static func renderedValue(
@@ -159,7 +221,10 @@ struct VariableEngine {
         }
     }
 
-    private static func fallbackCounterContexts(for document: ZPrintDocument) -> [Context] {
+    private static func fallbackCounterContexts(
+        for document: ZPrintDocument,
+        limit: Int?
+    ) -> [Context] {
         guard document.printSettings.counterEnd >= document.printSettings.counterStart else {
             return []
         }
@@ -169,12 +234,17 @@ struct VariableEngine {
 
         for number in range {
             for _ in 0..<max(1, document.printSettings.copiesPerNumber) {
-                contexts.append([
+                let context: Context = [
                     "number": formatted(
                         value: "\(number)",
                         format: document.printSettings.numberFormat
                     )
-                ])
+                ]
+                contexts.append(resolvedContext(context, for: document))
+
+                if let limit, contexts.count >= limit {
+                    return contexts
+                }
             }
         }
 
@@ -183,7 +253,8 @@ struct VariableEngine {
 
     private static func values(
         for variable: VariableDefinition,
-        document: ZPrintDocument
+        document: ZPrintDocument,
+        limit: Int?
     ) -> [String] {
         let range = document.printSettings.range(for: variable)
         let startValue = range?.startValue ?? variable.startValue
@@ -201,6 +272,10 @@ struct VariableEngine {
         while currentValue <= endValue {
             for _ in 0..<copiesPerValue {
                 values.append("\(currentValue)")
+
+                if let limit, values.count >= limit {
+                    return values
+                }
             }
 
             currentValue += step
@@ -271,6 +346,11 @@ struct VariableEngine {
             return "\(range?.startValue ?? variable.startValue)"
         }
 
+
+        if variable.type == .tableLookup {
+            return lookupFallback(for: variable)
+        }
+
         return defaultTextValue(for: variable)
     }
 
@@ -326,6 +406,15 @@ struct VariableEngine {
             return formattedValue
         }
 
+        if !variable.prefix.isEmpty, formattedValue.hasPrefix(variable.prefix) {
+            return formattedValue
+        }
+
         return "\(variable.prefix)\(formattedValue)"
+    }
+
+    private static func lookupFallback(for variable: VariableDefinition) -> String {
+        let configuredFallback = variable.tableLookup?.fallbackValue ?? ""
+        return configuredFallback.isEmpty ? variable.defaultValue : configuredFallback
     }
 }

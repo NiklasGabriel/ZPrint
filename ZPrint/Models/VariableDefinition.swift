@@ -15,6 +15,7 @@ struct VariableDefinition: Codable, Equatable, Identifiable, Sendable {
     var startValue: Int
     var endValue: Int
     var step: Int
+    var tableLookup: TableLookupConfiguration?
 
     init(
         id: UUID = UUID(),
@@ -25,7 +26,8 @@ struct VariableDefinition: Codable, Equatable, Identifiable, Sendable {
         prefix: String = "",
         startValue: Int = 1,
         endValue: Int = 1,
-        step: Int = 1
+        step: Int = 1,
+        tableLookup: TableLookupConfiguration? = nil
     ) {
         self.id = id
         self.name = name
@@ -36,6 +38,7 @@ struct VariableDefinition: Codable, Equatable, Identifiable, Sendable {
         self.startValue = startValue
         self.endValue = endValue
         self.step = step
+        self.tableLookup = tableLookup
     }
 
     static let standardVariables: [VariableDefinition] = [
@@ -72,6 +75,10 @@ struct VariableDefinition: Codable, Equatable, Identifiable, Sendable {
             return "\(titleName) · \(displayPattern)"
         }
 
+        if type == .tableLookup {
+            return "\(titleName) · Tabelle"
+        }
+
         return titleName
     }
 
@@ -89,6 +96,7 @@ struct VariableDefinition: Codable, Equatable, Identifiable, Sendable {
         case startValue
         case endValue
         case step
+        case tableLookup
         case key
         case displayName
         case valueType
@@ -110,6 +118,7 @@ struct VariableDefinition: Codable, Equatable, Identifiable, Sendable {
         startValue = max(1, container.decodeOrDefault(Int.self, forKey: .startValue, default: 1))
         endValue = max(1, container.decodeOrDefault(Int.self, forKey: .endValue, default: 1))
         step = max(1, container.decodeOrDefault(Int.self, forKey: .step, default: 1))
+        tableLookup = try? container.decodeIfPresent(TableLookupConfiguration.self, forKey: .tableLookup)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -124,12 +133,14 @@ struct VariableDefinition: Codable, Equatable, Identifiable, Sendable {
         try container.encode(startValue, forKey: .startValue)
         try container.encode(endValue, forKey: .endValue)
         try container.encode(step, forKey: .step)
+        try container.encodeIfPresent(tableLookup, forKey: .tableLookup)
     }
 }
 
 enum VariableType: String, Codable, CaseIterable, Equatable, Sendable {
     case text
     case sequence
+    case tableLookup
 
     var displayName: String {
         switch self {
@@ -137,6 +148,8 @@ enum VariableType: String, Codable, CaseIterable, Equatable, Sendable {
             return "Text"
         case .sequence:
             return "Sequenz"
+        case .tableLookup:
+            return "Tabellenverknüpfung"
         }
     }
 
@@ -147,6 +160,34 @@ enum VariableType: String, Codable, CaseIterable, Equatable, Sendable {
         case .date, .text, .none:
             self = .text
         }
+    }
+}
+
+struct TableLookupConfiguration: Codable, Equatable, Sendable {
+    var sourceVariableID: UUID?
+    var tableSourceID: UUID?
+    var sheetName: String
+    var keyColumn: String
+    var valueColumn: String
+    var fallbackValue: String
+    var caseSensitive: Bool
+
+    init(
+        sourceVariableID: UUID? = nil,
+        tableSourceID: UUID? = nil,
+        sheetName: String = "",
+        keyColumn: String = "",
+        valueColumn: String = "",
+        fallbackValue: String = "",
+        caseSensitive: Bool = false
+    ) {
+        self.sourceVariableID = sourceVariableID
+        self.tableSourceID = tableSourceID
+        self.sheetName = sheetName
+        self.keyColumn = keyColumn
+        self.valueColumn = valueColumn
+        self.fallbackValue = fallbackValue
+        self.caseSensitive = caseSensitive
     }
 }
 

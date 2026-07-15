@@ -53,6 +53,13 @@ struct VariablesFormatPane: View {
                 .controlSize(.small)
                 .buttonStyle(.bordered)
 
+                Button(action: addTableLookupVariable) {
+                    Label("Tabellenvariable", systemImage: "tablecells")
+                        .frame(maxWidth: .infinity)
+                }
+                .controlSize(.small)
+                .buttonStyle(.bordered)
+
                 if let selectedVariable {
                     Button {
                         document.printSettings.runningVariableID = selectedVariable.id
@@ -78,6 +85,14 @@ struct VariablesFormatPane: View {
     }
 
     private func addVariable() {
+        addVariable(type: .text)
+    }
+
+    private func addTableLookupVariable() {
+        addVariable(type: .tableLookup)
+    }
+
+    private func addVariable(type: VariableType) {
         let baseName = "variable"
         var name = baseName
         var suffix = 2
@@ -87,7 +102,15 @@ struct VariablesFormatPane: View {
             suffix += 1
         }
 
-        let variable = VariableDefinition(name: name)
+        let sourceVariableID = document.variables.first(where: { $0.type == .sequence })?.id
+            ?? document.variables.first(where: { $0.type != .tableLookup })?.id
+        let variable = VariableDefinition(
+            name: name,
+            type: type,
+            tableLookup: type == .tableLookup
+                ? TableLookupConfiguration(sourceVariableID: sourceVariableID)
+                : nil
+        )
         document.variables.append(variable)
         document.printSettings = document.printSettings.normalized(for: document.variables)
         selectedVariableID = variable.id

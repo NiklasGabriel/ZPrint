@@ -214,7 +214,7 @@ struct LabelCanvasView: View {
             }
         }
         .frame(width: max(1, rect.width), height: max(1, rect.height))
-        .rotationEffect(.degrees(Double(element.rotation.degrees)))
+        .rotationEffect(.degrees(-Double(element.rotation.degrees)))
         .position(x: rect.midX, y: rect.midY)
         .zIndex(selectedElementID == element.id ? 12 : 10)
     }
@@ -556,6 +556,19 @@ struct LabelCanvasView: View {
             height = minHeight
         }
 
+        if case .image(let imageElement) = element, imageElement.locksAspectRatio {
+            let proportionalSize = proportionalImageSize(
+                width: width,
+                height: height,
+                originalFrame: originalFrame,
+                handle: handle,
+                aspectRatio: imageElement.sourceAspectRatio,
+                minimumSize: minimumSize
+            )
+            width = proportionalSize.widthDots
+            height = proportionalSize.heightDots
+        }
+
         let fixedAnchor = handle.fixedAnchor
         let centerShift = rotatedVector(
             x: fixedAnchor.x * (CGFloat(originalFrame.widthDots) - CGFloat(width)) / 2,
@@ -570,15 +583,54 @@ struct LabelCanvasView: View {
         x = Int(round(nextCenter.x - CGFloat(width) / 2))
         y = Int(round(nextCenter.y - CGFloat(height) / 2))
 
-        return constrainedElementFrame(
-            LabelElementFrame(
-                xDots: x,
-                yDots: y,
-                widthDots: width,
-                heightDots: height
-            ),
-            minimumSize: minimumSize
+        let proposedFrame = LabelElementFrame(
+            xDots: x,
+            yDots: y,
+            widthDots: width,
+            heightDots: height
         )
+
+        if case .image(let imageElement) = element, imageElement.locksAspectRatio {
+            return constrainedAspectLockedFrame(
+                proposedFrame,
+                aspectRatio: imageElement.sourceAspectRatio,
+                minimumSize: minimumSize
+            )
+        }
+
+        return constrainedElementFrame(proposedFrame, minimumSize: minimumSize)
+    }
+
+    private func proportionalImageSize(
+        width: Int,
+        height: Int,
+        originalFrame: LabelElementFrame,
+        handle: ResizeHandle,
+        aspectRatio: Double,
+        minimumSize: (widthDots: Int, heightDots: Int)
+    ) -> (widthDots: Int, heightDots: Int) {
+        let ratio = max(0.01, aspectRatio)
+        var adjustedWidth = max(minimumSize.widthDots, width)
+        var adjustedHeight = max(minimumSize.heightDots, height)
+
+        if handle.isCorner {
+            let widthScale = Double(adjustedWidth) / Double(max(1, originalFrame.widthDots))
+            let heightScale = Double(adjustedHeight) / Double(max(1, originalFrame.heightDots))
+            let scale = abs(widthScale - 1) >= abs(heightScale - 1) ? widthScale : heightScale
+            adjustedWidth = max(minimumSize.widthDots, Int(round(Double(originalFrame.widthDots) * scale)))
+            adjustedHeight = max(minimumSize.heightDots, Int(round(Double(adjustedWidth) / ratio)))
+        } else if handle.affectsLeft || handle.affectsRight {
+            adjustedHeight = max(minimumSize.heightDots, Int(round(Double(adjustedWidth) / ratio)))
+        } else {
+            adjustedWidth = max(minimumSize.widthDots, Int(round(Double(adjustedHeight) * ratio)))
+        }
+
+        if adjustedHeight < minimumSize.heightDots {
+            adjustedHeight = minimumSize.heightDots
+            adjustedWidth = max(minimumSize.widthDots, Int(round(Double(adjustedHeight) * ratio)))
+        }
+
+        return (adjustedWidth, adjustedHeight)
     }
 
     private func localResizeDelta(
@@ -590,7 +642,7 @@ struct LabelCanvasView: View {
             return (xDots, yDots)
         }
 
-        let radians = Double(rotation.degrees) * .pi / 180
+        let radians = -Double(rotation.degrees) * .pi / 180
         let cosine = cos(radians)
         let sine = sin(radians)
         let x = Double(xDots)
@@ -666,6 +718,14 @@ struct LabelCanvasView: View {
         excluding elementID: UUID,
         minimumSize: (widthDots: Int, heightDots: Int)
     ) -> LabelElementFrame {
+        if case .image(let imageElement) = element, imageElement.locksAspectRatio {
+            return constrainedAspectLockedFrame(
+                frame,
+                aspectRatio: imageElement.sourceAspectRatio,
+                minimumSize: minimumSize
+            )
+        }
+
         if element.rotation.degrees != 0 {
             return snappedRotatedFrameForResizing(
                 frame,
@@ -894,7 +954,7 @@ struct LabelCanvasView: View {
         y: CGFloat,
         rotation: LabelElementRotation
     ) -> CGPoint {
-        let radians = CGFloat(rotation.degrees) * .pi / 180
+        let radians = -CGFloat(rotation.degrees) * .pi / 180
         let cosine = cos(radians)
         let sine = sin(radians)
 
@@ -909,7 +969,7 @@ struct LabelCanvasView: View {
         y: CGFloat,
         rotation: LabelElementRotation
     ) -> CGPoint {
-        let radians = CGFloat(rotation.degrees) * .pi / 180
+        let radians = -CGFloat(rotation.degrees) * .pi / 180
         let cosine = cos(radians)
         let sine = sin(radians)
 
@@ -944,29 +1004,26 @@ struct LabelCanvasView: View {
     ) -> LabelElementFrame {
         let minWidth = minimumSize?.widthDots ?? minimumElementWidthDots
         let minHeight = minimumSize?.heightDots ?? minimumElementHeightDots
-        var x = frame.xDots
-        var y = frame.yDots
-        var width = max(frame.widthDots, minWidth)
-        var height = max(frame.heightDots, minHeight)
+        return LabelElementFrame(
+            xDots: frame.xDots,
+            yDots: frame.yDots,
+            widthDots: max(frame.widthDots, minWidth),
+            heightDots: max(frame.heightDots, minHeight)
+        )
+    }
 
-        if x < 0 {
-            width += x
-            x = 0
-        }
-
-        if y < 0 {
-            height += y
-            y = 0
-        }
-
-        x = min(max(x, 0), max(0, document.label.widthDots - minWidth))
-        y = min(max(y, 0), max(0, document.label.heightDots - minHeight))
-        width = min(max(width, minWidth), document.label.widthDots - x)
-        height = min(max(height, minHeight), document.label.heightDots - y)
+    private func constrainedAspectLockedFrame(
+        _ frame: LabelElementFrame,
+        aspectRatio: Double,
+        minimumSize: (widthDots: Int, heightDots: Int)
+    ) -> LabelElementFrame {
+        let ratio = max(0.01, aspectRatio)
+        let width = max(frame.widthDots, minimumSize.widthDots)
+        let height = max(minimumSize.heightDots, Int(round(Double(width) / ratio)))
 
         return LabelElementFrame(
-            xDots: x,
-            yDots: y,
+            xDots: frame.xDots,
+            yDots: frame.yDots,
             widthDots: width,
             heightDots: height
         )
@@ -1169,6 +1226,10 @@ struct LabelCanvasView: View {
             shapeElement.id = UUID()
             shapeElement.frame = nextFrame
             return .shape(shapeElement)
+        case .image(var imageElement):
+            imageElement.id = UUID()
+            imageElement.frame = nextFrame
+            return .image(imageElement)
         }
     }
 
@@ -1854,6 +1915,8 @@ private struct CanvasLabelElementView: View {
                 barcodeElementView(barcodeElement)
             case .shape(let shapeElement):
                 shapeElementView(shapeElement)
+            case .image(let imageElement):
+                LabelImageView(imageData: imageElement.imageData)
             }
         }
         .overlay {
@@ -1887,16 +1950,29 @@ private struct CanvasLabelElementView: View {
     }
 
     private func barcodeElementView(_ element: BarcodeLabelElement) -> some View {
-        VStack(spacing: 0) {
-            BarcodeBarsView(value: element.value)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        let readableHeightDots = element.showsHumanReadableText ? min(28, max(14, element.frame.heightDots / 4)) : 0
+        let barHeightDots = max(1, element.frame.heightDots - readableHeightDots)
+
+        return VStack(spacing: 0) {
+            BarcodeBarsView(
+                value: element.value,
+                moduleWidthDots: Code128Barcode.moduleWidthFitting(
+                    value: element.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "EMPTY" : element.value,
+                    widthDots: element.frame.widthDots,
+                    fallbackModuleWidth: element.moduleWidth
+                ),
+                scale: scale
+            )
+                .frame(height: scale.points(fromDots: barHeightDots))
+                .frame(maxWidth: .infinity)
 
             if element.showsHumanReadableText {
                 Text(element.value)
-                    .font(.system(size: 9, design: .monospaced))
+                    .font(.system(size: max(CGFloat(6), scale.points(fromDots: max(8, readableHeightDots - 6)))))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
+                    .frame(height: scale.points(fromDots: readableHeightDots))
                     .frame(maxWidth: .infinity)
             }
         }
@@ -2134,9 +2210,12 @@ private extension TextElementAlignment {
 
 private struct BarcodeBarsView: View {
     let value: String
+    let moduleWidthDots: Int
+    let scale: DotViewScale
 
     var body: some View {
-        let segments = Code128Barcode.segments(for: value)
+        let renderedValue = value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "EMPTY" : value
+        let segments = Code128Barcode.segments(for: renderedValue)
 
         return GeometryReader { proxy in
             if segments.isEmpty {
@@ -2145,20 +2224,22 @@ private struct BarcodeBarsView: View {
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                let totalModules = segments.reduce(0) { $0 + $1.widthModules }
-                let fittedModuleWidth = proxy.size.width / CGFloat(max(totalModules, 1))
+                let moduleWidth = max(1, scale.points(fromDots: moduleWidthDots))
+                let barcodeWidth = CGFloat(Code128Barcode.totalModules(for: renderedValue)) * moduleWidth
 
                 HStack(alignment: .bottom, spacing: 0) {
                     ForEach(segments) { segment in
                         Rectangle()
                             .fill(segment.isBar ? Color.primary : Color.clear)
                             .frame(
-                                width: CGFloat(segment.widthModules) * fittedModuleWidth,
+                                width: CGFloat(segment.widthModules) * moduleWidth,
                                 height: proxy.size.height
                             )
                     }
                 }
+                .frame(width: barcodeWidth, height: proxy.size.height, alignment: .leading)
                 .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
+                .clipped()
             }
         }
     }

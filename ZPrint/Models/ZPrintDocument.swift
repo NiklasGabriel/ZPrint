@@ -17,6 +17,7 @@ struct ZPrintDocument: FileDocument, Codable, Equatable, Sendable {
     var label: LabelSize
     var elements: [LabelElement]
     var variables: [VariableDefinition]
+    var tableSources: [TableDataSource]
     var guides: [GuideElement]
     var printSettings: PrintSettings
     var viewSettings: ViewSettings
@@ -28,6 +29,7 @@ struct ZPrintDocument: FileDocument, Codable, Equatable, Sendable {
         label: LabelSize,
         elements: [LabelElement] = [],
         variables: [VariableDefinition] = [],
+        tableSources: [TableDataSource] = [],
         guides: [GuideElement] = [],
         printSettings: PrintSettings = .standard,
         viewSettings: ViewSettings = .standard
@@ -38,6 +40,7 @@ struct ZPrintDocument: FileDocument, Codable, Equatable, Sendable {
         self.label = label
         self.elements = elements
         self.variables = variables
+        self.tableSources = tableSources
         self.guides = guides
         self.printSettings = printSettings
         self.viewSettings = viewSettings
@@ -62,6 +65,7 @@ struct ZPrintDocument: FileDocument, Codable, Equatable, Sendable {
         case label
         case elements
         case variables
+        case tableSources
         case guides
         case printSettings
         case viewSettings
@@ -88,6 +92,7 @@ struct ZPrintDocument: FileDocument, Codable, Equatable, Sendable {
         elements = container.decodeLossyArray([LabelElement].self, forKey: .elements)
             .map { $0.replacingFrame($0.frame.clamped(to: decodedLabel)) }
         variables = container.decodeLossyArray([VariableDefinition].self, forKey: .variables)
+        tableSources = container.decodeLossyArray([TableDataSource].self, forKey: .tableSources)
         guides = container.decodeLossyArray([GuideElement].self, forKey: .guides)
             .map { $0.clamped(to: decodedLabel) }
         printSettings = container.decodeOrDefault(PrintSettings.self, forKey: .printSettings, default: standardDocument.printSettings)

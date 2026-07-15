@@ -9,6 +9,7 @@ enum LabelElement: Codable, Equatable, Identifiable, Sendable {
     case text(TextLabelElement)
     case barcode(BarcodeLabelElement)
     case shape(ShapeLabelElement)
+    case image(ImageLabelElement)
 
     var id: UUID {
         switch self {
@@ -17,6 +18,8 @@ enum LabelElement: Codable, Equatable, Identifiable, Sendable {
         case .barcode(let element):
             return element.id
         case .shape(let element):
+            return element.id
+        case .image(let element):
             return element.id
         }
     }
@@ -29,6 +32,8 @@ enum LabelElement: Codable, Equatable, Identifiable, Sendable {
             return element.frame
         case .shape(let element):
             return element.frame
+        case .image(let element):
+            return element.frame
         }
     }
 
@@ -39,6 +44,8 @@ enum LabelElement: Codable, Equatable, Identifiable, Sendable {
         case .barcode(let element):
             return element.rotation
         case .shape(let element):
+            return element.rotation
+        case .image(let element):
             return element.rotation
         }
     }
@@ -54,6 +61,9 @@ enum LabelElement: Codable, Equatable, Identifiable, Sendable {
         case .shape(var element):
             element.frame = frame
             return .shape(element)
+        case .image(var element):
+            element.frame = frame
+            return .image(element)
         }
     }
 
@@ -66,6 +76,7 @@ enum LabelElement: Codable, Equatable, Identifiable, Sendable {
         case text
         case barcode
         case shape
+        case image
     }
 
     init(from decoder: Decoder) throws {
@@ -79,6 +90,8 @@ enum LabelElement: Codable, Equatable, Identifiable, Sendable {
             self = .barcode(try container.decode(BarcodeLabelElement.self, forKey: .payload))
         case .shape:
             self = .shape(try container.decode(ShapeLabelElement.self, forKey: .payload))
+        case .image:
+            self = .image(try container.decode(ImageLabelElement.self, forKey: .payload))
         }
     }
 
@@ -94,6 +107,9 @@ enum LabelElement: Codable, Equatable, Identifiable, Sendable {
             try container.encode(element, forKey: .payload)
         case .shape(let element):
             try container.encode(ElementType.shape, forKey: .type)
+            try container.encode(element, forKey: .payload)
+        case .image(let element):
+            try container.encode(ElementType.image, forKey: .type)
             try container.encode(element, forKey: .payload)
         }
     }
@@ -145,8 +161,8 @@ struct LabelElementFrame: Codable, Equatable, Sendable {
         let maxY = max(0, labelSize.heightDots - heightDots)
 
         return LabelElementFrame(
-            xDots: min(max(xDots, 0), maxX),
-            yDots: min(max(yDots, 0), maxY),
+            xDots: min(xDots, maxX),
+            yDots: min(yDots, maxY),
             widthDots: widthDots,
             heightDots: heightDots
         )

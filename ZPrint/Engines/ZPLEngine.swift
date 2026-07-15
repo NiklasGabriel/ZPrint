@@ -20,14 +20,19 @@ struct ZPLEngine {
 
         let variableEngine = VariableEngine(variables: document.variables)
 
+        if let bitmapLayer = ZPLBitmapLayerRenderer.renderNonBarcodeLayer(
+            document: document,
+            context: context
+        ) {
+            lines.append(contentsOf: [
+                "^FO\(bitmapLayer.xDots),\(bitmapLayer.yDots)",
+                bitmapLayer.zplCommand
+            ])
+        }
+
         for element in document.elements {
-            switch element {
-            case .text(let textElement):
-                lines.append(contentsOf: zplLines(for: textElement, variableEngine: variableEngine, context: context))
-            case .barcode(let barcodeElement):
+            if case .barcode(let barcodeElement) = element {
                 lines.append(contentsOf: zplLines(for: barcodeElement, variableEngine: variableEngine, context: context))
-            case .shape(let shapeElement):
-                lines.append(contentsOf: zplLines(for: shapeElement))
             }
         }
 
@@ -90,30 +95,39 @@ struct ZPLEngine {
             }
         }
 
+        for variable in document.variables where variable.type == .tableLookup {
+            guard let lookup = variable.tableLookup,
+                  let sourceVariableID = lookup.sourceVariableID,
+                  document.variables.contains(where: { $0.id == sourceVariableID && $0.type != .tableLookup }),
+                  let tableSourceID = lookup.tableSourceID,
+                  let tableSource = document.tableSources.first(where: { $0.id == tableSourceID }),
+                  let sheet = tableSource.sheet(named: lookup.sheetName),
+                  sheet.headers.contains(lookup.keyColumn),
+                  sheet.headers.contains(lookup.valueColumn) else {
+                diagnostics.append(
+                    ZPLDiagnostic(
+                        level: .warning,
+                        message: "Die Tabellenvariable \"\(variable.name)\" ist nicht vollständig verknüpft."
+                    )
+                )
+                continue
+            }
+
+            let duplicateCount = sheet.duplicateKeyCount(
+                in: lookup.keyColumn,
+                caseSensitive: lookup.caseSensitive
+            )
+            if duplicateCount > 0 {
+                diagnostics.append(
+                    ZPLDiagnostic(
+                        level: .warning,
+                        message: "Die Tabellenvariable \"\(variable.name)\" enthält \(duplicateCount) doppelte Schlüssel; der erste Treffer wird verwendet."
+                    )
+                )
+            }
+        }
+
         return diagnostics
-    }
-
-    private static func zplLines(
-        for element: TextLabelElement,
-        variableEngine: VariableEngine,
-        context: VariableEngine.Context
-    ) -> [String] {
-        let frame = element.frame
-        let renderedText = variableEngine.renderTemplateString(element.text, context: context)
-        let height = max(1, element.fontSizeDots)
-        let width = max(1, Int(Double(height) * 0.96))
-        let orientation = zplOrientation(for: element.rotation)
-        let alignment = zplAlignment(for: element.alignment)
-
-        // Zebra Standard-Font A0 unterstützt Fett/Kursiv/Unterstrichen nicht zuverlässig direkt.
-        // Diese Attribute bleiben vorerst Editor-/Preview-Formatierung, bis echte Font-Downloads
-        // oder robuste Zebra-Font-Mappings eingeführt werden.
-        return [
-            "^FO\(frame.xDots),\(frame.yDots)",
-            "^A0\(orientation),\(height),\(width)",
-            "^FB\(max(1, frame.widthDots)),1,0,\(alignment),0",
-            "^FH\\^FD\(escapeFieldData(renderedText))^FS"
-        ]
     }
 
     private static func zplLines(
@@ -127,13 +141,13 @@ struct ZPLEngine {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let value = renderedValue.isEmpty ? "EMPTY" : renderedValue
         let orientation = zplOrientation(for: element.rotation)
-        let humanReadable = element.showsHumanReadableText ? "Y" : "N"
+        let humanReadable = "N"
         let moduleWidth = Code128Barcode.moduleWidthFitting(
             value: value,
             widthDots: frame.widthDots,
             fallbackModuleWidth: element.moduleWidth
         )
-        let humanReadableReserve = element.showsHumanReadableText ? 24 : 0
+        let humanReadableReserve = element.showsHumanReadableText ? min(28, max(14, frame.heightDots / 4)) : 0
         let barHeight = max(1, frame.heightDots - humanReadableReserve)
 
         switch element.symbology {
@@ -151,54 +165,16 @@ struct ZPLEngine {
         }
     }
 
-    private static func zplLines(for element: ShapeLabelElement) -> [String] {
-        let frame = element.frame
-        let thickness = max(1, element.strokeWidthDots)
-
-        switch element.shape {
-        case .rectangle, .roundedRectangle, .capsule:
-            return [
-                "^FO\(frame.xDots),\(frame.yDots)",
-                "^GB\(max(1, frame.widthDots)),\(max(1, frame.heightDots)),\(element.isFilled ? max(1, frame.heightDots) : thickness),B,\(element.shape == .rectangle ? 0 : 8)^FS"
-            ]
-        case .line:
-            return [
-                "^FO\(frame.xDots),\(frame.yDots)",
-                "^GB\(max(1, frame.widthDots)),\(max(1, thickness)),\(thickness),B,0^FS"
-            ]
-        case .ellipse:
-            return [
-                "^FO\(frame.xDots),\(frame.yDots)",
-                "^GE\(max(1, frame.widthDots)),\(max(1, frame.heightDots)),\(thickness),B^FS"
-            ]
-        case .triangle:
-            return [
-                "^FX Triangle shapes are not exported yet."
-            ]
-        }
-    }
-
     private static func zplOrientation(for rotation: LabelElementRotation) -> String {
         switch rotation.degrees {
         case 90:
-            return "R"
+            return "B"
         case 180:
             return "I"
         case 270:
-            return "B"
+            return "R"
         default:
             return "N"
-        }
-    }
-
-    private static func zplAlignment(for alignment: TextElementAlignment) -> String {
-        switch alignment {
-        case .left:
-            return "L"
-        case .center:
-            return "C"
-        case .right:
-            return "R"
         }
     }
 

@@ -15,6 +15,9 @@ struct AppShellView: View {
     @State private var selectedRibbonTab: RibbonTab = .home
     @State private var previewContext: VariableEngine.Context = [:]
     @State private var activeFormatPanePage: FormatPanePage = .document
+    @State private var isShowingImageImporter = false
+    @State private var imageImportErrorMessage: String?
+    @State private var didRefreshLinkedTables = false
     @StateObject private var printController = PrintJobController()
 
     var body: some View {
@@ -62,6 +65,7 @@ struct AppShellView: View {
         .background(ZPrintDesign.ColorToken.appBackground)
         .onAppear {
             normalizeDocumentDerivedState()
+            refreshLinkedTablesIfNeeded()
         }
         .onChange(of: selectedRibbonTab) { _, newTab in
             updateFormatPanePage(for: newTab)
@@ -106,11 +110,25 @@ struct AppShellView: View {
         .onChange(of: document.variables) { _, _ in
             normalizeDocumentDerivedState()
         }
+        .onChange(of: document.tableSources) { _, _ in
+            normalizePreviewContext()
+        }
         .onChange(of: document.printSettings) { _, _ in
             normalizePreviewContext()
         }
         .task {
             await printController.refreshPrinters()
+        }
+        .fileImporter(
+            isPresented: $isShowingImageImporter,
+            allowedContentTypes: LabelImageImporter.allowedContentTypes,
+            allowsMultipleSelection: false,
+            onCompletion: importImage
+        )
+        .alert("Bild konnte nicht eingefügt werden", isPresented: imageImportErrorPresented) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(imageImportErrorMessage ?? "Unbekannter Fehler")
         }
     }
 
@@ -120,6 +138,7 @@ struct AppShellView: View {
             deleteSelection: deleteSelection,
             addText: addTextElement,
             addBarcode: addBarcodeElement,
+            addImage: { isShowingImageImporter = true },
             addRectangle: addRectangleElement,
             addLine: addLineElement,
             addVerticalGuide: {
@@ -136,7 +155,8 @@ struct AppShellView: View {
                     name: "Horizontale Hilfslinie"
                 )
             },
-            addVariable: addVariable
+            addVariable: addVariable,
+            addTableLookupVariable: addTableLookupVariable
         )
     }
 
@@ -202,6 +222,61 @@ struct AppShellView: View {
 
         document.elements.append(.barcode(clampedElement))
         selectNewElement(id: clampedElement.id)
+    }
+
+    private func importImage(_ result: Result<[URL], Error>) {
+        do {
+            guard let url = try result.get().first else {
+                return
+            }
+
+            let importedImage = try LabelImageImporter.load(from: url)
+            let frame = initialImageFrame(aspectRatio: importedImage.aspectRatio)
+            let imageElement = ImageLabelElement(
+                name: importedImage.fileName,
+                frame: frame,
+                fileName: importedImage.fileName,
+                mediaType: importedImage.mediaType,
+                imageData: importedImage.data,
+                sourceWidth: importedImage.width,
+                sourceHeight: importedImage.height
+            )
+
+            document.elements.append(.image(imageElement))
+            selectNewElement(id: imageElement.id)
+        } catch {
+            imageImportErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func initialImageFrame(aspectRatio: Double) -> LabelElementFrame {
+        let safeAspectRatio = max(0.01, aspectRatio)
+        let maximumWidth = max(12, min(300, document.label.widthDots - 60))
+        let maximumHeight = max(12, min(220, document.label.heightDots - 60))
+        var width = min(Double(maximumWidth), Double(maximumHeight) * safeAspectRatio)
+        var height = width / safeAspectRatio
+
+        if height > Double(maximumHeight) {
+            height = Double(maximumHeight)
+            width = height * safeAspectRatio
+        }
+
+        let widthDots = max(1, Int(round(width)))
+        let heightDots = max(1, Int(round(height)))
+        return LabelElementFrame(
+            xDots: max(0, (document.label.widthDots - widthDots) / 2),
+            yDots: max(0, (document.label.heightDots - heightDots) / 2),
+            widthDots: widthDots,
+            heightDots: heightDots
+        )
+        .clamped(to: document.label)
+    }
+
+    private var imageImportErrorPresented: Binding<Bool> {
+        Binding(
+            get: { imageImportErrorMessage != nil },
+            set: { if !$0 { imageImportErrorMessage = nil } }
+        )
     }
 
     private func addRectangleElement() {
@@ -284,6 +359,67 @@ struct AppShellView: View {
         normalizePreviewContext()
     }
 
+    private func addTableLookupVariable() {
+        let baseName = "tabellenwert"
+        var name = baseName
+        var suffix = 2
+
+        while document.variables.contains(where: { $0.name == name }) {
+            name = "\(baseName)\(suffix)"
+            suffix += 1
+        }
+
+        let sourceVariableID = document.variables.first(where: { $0.type == .sequence })?.id
+            ?? document.variables.first(where: { $0.type != .tableLookup })?.id
+        let variable = VariableDefinition(
+            name: name,
+            type: .tableLookup,
+            tableLookup: TableLookupConfiguration(sourceVariableID: sourceVariableID)
+        )
+        document.variables.append(variable)
+        document.printSettings = document.printSettings.normalized(for: document.variables)
+        selectedElementID = nil
+        selectedGuideID = nil
+        selectedVariableID = variable.id
+        activeFormatPanePage = .variables
+        normalizePreviewContext()
+    }
+
+    private func refreshLinkedTablesIfNeeded() {
+        guard !didRefreshLinkedTables else {
+            return
+        }
+        didRefreshLinkedTables = true
+
+        let originalSources = document.tableSources
+        Task {
+            let refreshResults = await Task.detached(priority: .utility) {
+                originalSources.map { source in
+                    (source, try? TableDataImporter.refresh(source, onlyIfChanged: true))
+                }
+            }.value
+
+            var refreshedSources = document.tableSources
+            var didChange = false
+            for (originalSource, refreshedSource) in refreshResults {
+                guard let refreshedSource,
+                      refreshedSource != originalSource,
+                      let index = refreshedSources.firstIndex(where: { $0.id == originalSource.id }),
+                      refreshedSources[index] == originalSource else {
+                    continue
+                }
+
+                refreshedSources[index] = refreshedSource
+                didChange = true
+            }
+
+            if didChange {
+                document.tableSources = refreshedSources
+                normalizePreviewContext()
+            }
+        }
+    }
+
     private func selectNewElement(id: UUID) {
         document.viewSettings.mode = .edit
         selectedElementID = id
@@ -329,9 +465,11 @@ struct RibbonActions {
     let deleteSelection: () -> Void
     let addText: () -> Void
     let addBarcode: () -> Void
+    let addImage: () -> Void
     let addRectangle: () -> Void
     let addLine: () -> Void
     let addVerticalGuide: () -> Void
     let addHorizontalGuide: () -> Void
     let addVariable: () -> Void
+    let addTableLookupVariable: () -> Void
 }

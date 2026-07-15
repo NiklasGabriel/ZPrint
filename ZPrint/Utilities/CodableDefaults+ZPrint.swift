@@ -11,11 +11,7 @@ extension KeyedDecodingContainer {
         forKey key: Key,
         default defaultValue: Value
     ) -> Value {
-        guard let value = try? decodeIfPresent(type, forKey: key) else {
-            return defaultValue
-        }
-
-        return value ?? defaultValue
+        (try? decodeIfPresent(type, forKey: key)) ?? defaultValue
     }
 
     func decodeLossyArray<Element: Decodable>(

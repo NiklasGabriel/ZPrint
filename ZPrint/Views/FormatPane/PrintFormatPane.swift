@@ -8,10 +8,8 @@ import SwiftUI
 struct PrintFormatPane: View {
     @Binding var document: ZPrintDocument
     @ObservedObject var printController: PrintJobController
-
-    private var zpl: String {
-        ZPLEngine.generateBatchZPL(document: document)
-    }
+    @State private var zplPreviewText = "ZPL-Vorschau wird vorbereitet ..."
+    @State private var isRenderingZPLPreview = false
 
     private var zplDiagnostics: [ZPLDiagnostic] {
         ZPLEngine.diagnostics(for: document)
@@ -26,7 +24,7 @@ struct PrintFormatPane: View {
     }
 
     private var expectedLabelCount: Int {
-        VariableEngine.batchContexts(for: document).count
+        VariableEngine.estimatedBatchLabelCount(for: document)
     }
 
     private var printerValidation: PrinterSelectionValidation {
@@ -52,8 +50,17 @@ struct PrintFormatPane: View {
         .onChange(of: document.printSettings.selectedPrinterName) { _, newValue in
             printController.selectedPrinterDidChange(newValue)
         }
-        .onChange(of: zpl) { _, _ in
+        .onChange(of: document.elements) { _, _ in
             printController.preparedJob = nil
+        }
+        .onChange(of: document.variables) { _, _ in
+            printController.preparedJob = nil
+        }
+        .onChange(of: document.printSettings) { _, _ in
+            printController.preparedJob = nil
+        }
+        .task(id: document) {
+            await refreshZPLPreview()
         }
     }
 
@@ -136,8 +143,18 @@ struct PrintFormatPane: View {
 
     private var zplPreviewSection: some View {
         FormatSection(title: "ZPL-Vorschau") {
+            if isRenderingZPLPreview {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Vorschau wird erzeugt ...")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             ScrollView([.vertical, .horizontal]) {
-                Text(zplPreview)
+                Text(zplPreviewText)
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.primary)
                     .textSelection(.enabled)
@@ -199,9 +216,46 @@ struct PrintFormatPane: View {
         )
     }
 
-    private var zplPreview: String {
+    private func refreshZPLPreview() async {
+        isRenderingZPLPreview = true
+        zplPreviewText = "ZPL-Vorschau wird erzeugt ..."
+
+        do {
+            try await Task.sleep(for: .milliseconds(120))
+        } catch {
+            isRenderingZPLPreview = false
+            return
+        }
+
+        guard !Task.isCancelled else {
+            isRenderingZPLPreview = false
+            return
+        }
+
+        let previewContext = VariableEngine.batchContexts(for: document).first ?? [:]
+        let firstLabelZPL = ZPLEngine.generateLabelZPL(
+            document: document,
+            context: previewContext
+        )
+
+        guard !Task.isCancelled else {
+            isRenderingZPLPreview = false
+            return
+        }
+
+        zplPreviewText = Self.previewText(for: firstLabelZPL)
+        isRenderingZPLPreview = false
+    }
+
+    private static func previewText(for zpl: String) -> String {
         let lines = zpl.components(separatedBy: .newlines)
-        let previewLines = lines.prefix(34)
+        let previewLines = lines.prefix(24).map { line in
+            if line.hasPrefix("^GFA") {
+                return "^GFA... (\(line.count) Zeichen Bitmapdaten)"
+            }
+
+            return line
+        }
         let suffix = lines.count > previewLines.count ? "\n..." : ""
         return previewLines.joined(separator: "\n") + suffix
     }

@@ -194,6 +194,13 @@ struct DocumentSidebarView: View {
                 InspectorPlaceholderRow(systemImageName: "rectangle", title: "Form-Inspector folgt später")
             }
             selectedElementActions
+        case .image(let imageElement):
+            Section("Bild") {
+                LabelImageView(imageData: imageElement.imageData)
+                    .aspectRatio(imageElement.sourceAspectRatio, contentMode: .fit)
+                    .frame(height: 100)
+            }
+            selectedElementActions
         }
     }
 
@@ -406,7 +413,7 @@ private struct TextElementInspector: View {
 
     private func frameBinding(
         _ keyPath: WritableKeyPath<LabelElementFrame, Int>,
-        minimum: Int = 0
+        minimum: Int = Int.min
     ) -> Binding<Int> {
         Binding(
             get: { element.frame[keyPath: keyPath] },
@@ -463,7 +470,7 @@ private struct BarcodeElementInspector: View {
 
     private func frameBinding(
         _ keyPath: WritableKeyPath<LabelElementFrame, Int>,
-        minimum: Int = 0
+        minimum: Int = Int.min
     ) -> Binding<Int> {
         Binding(
             get: { element.frame[keyPath: keyPath] },
@@ -598,6 +605,8 @@ private struct ElementListRow: View {
             return "barcode"
         case .shape:
             return "rectangle"
+        case .image:
+            return "photo"
         }
     }
 
@@ -609,6 +618,8 @@ private struct ElementListRow: View {
             return barcodeElement.value.isEmpty ? "Barcode" : barcodeElement.value
         case .shape(let shapeElement):
             return shapeElement.name
+        case .image(let imageElement):
+            return imageElement.fileName
         }
     }
 }

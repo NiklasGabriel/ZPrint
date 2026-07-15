@@ -155,6 +155,7 @@ struct RibbonView: View {
             RibbonGroupView(title: "Elemente") {
                 RibbonLargeButton(title: "Text", systemImage: "textformat", action: actions.addText)
                 RibbonLargeButton(title: "Barcode", systemImage: "barcode", action: actions.addBarcode)
+                RibbonLargeButton(title: "Bild / SVG", systemImage: "photo", action: actions.addImage)
                 RibbonLargeButton(title: "Form", systemImage: "rectangle", action: actions.addRectangle)
                 RibbonLargeButton(title: "Linie", systemImage: "line.diagonal", action: actions.addLine)
             }
@@ -167,7 +168,6 @@ struct RibbonView: View {
             RibbonGroupView(title: "Vorbereitet") {
                 RibbonLargeButton(title: "QR-Code", systemImage: "qrcode", isDisabled: true) {}
                 RibbonLargeButton(title: "DataMatrix", systemImage: "square.grid.3x3", isDisabled: true) {}
-                RibbonLargeButton(title: "Bild", systemImage: "photo", isDisabled: true) {}
             }
         }
     }
@@ -228,6 +228,7 @@ struct RibbonView: View {
 
                     HStack(spacing: 6) {
                         RibbonButton(title: "Neu", systemImage: "plus", action: actions.addVariable)
+                        RibbonButton(title: "Tabelle", systemImage: "tablecells", action: actions.addTableLookupVariable)
                     }
                 }
             }
@@ -262,7 +263,7 @@ struct RibbonView: View {
         Group {
             RibbonGroupView(title: "Vorschauwerte") {
                 PreviewRibbonContextView(
-                    variables: document.variables,
+                    document: document,
                     context: $previewContext
                 )
             }
@@ -389,7 +390,7 @@ struct RibbonView: View {
 
     private var nonRunningPrintVariables: [VariableDefinition] {
         document.variables.filter { variable in
-            variable.id != runningVariable?.id
+            variable.id != runningVariable?.id && variable.type != .tableLookup
         }
     }
 
@@ -408,7 +409,6 @@ struct RibbonView: View {
 
     private var printHasBlockingErrors: Bool {
         ZPLEngine.diagnostics(for: document).contains { $0.level == .error }
-            || ZPLEngine.generateBatchZPL(document: document).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func runningRangeValueBinding(_ keyPath: WritableKeyPath<PrintVariableRange, Int>) -> Binding<Int> {
@@ -795,8 +795,12 @@ private struct RibbonFontSizeControl: View {
 }
 
 private struct PreviewRibbonContextView: View {
-    let variables: [VariableDefinition]
+    let document: ZPrintDocument
     @Binding var context: VariableEngine.Context
+
+    private var variables: [VariableDefinition] {
+        document.variables
+    }
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
@@ -810,7 +814,8 @@ private struct PreviewRibbonContextView: View {
                     ForEach(variables) { variable in
                         PreviewRibbonContextField(
                             variable: variable,
-                            value: binding(for: variable.name)
+                            value: binding(for: variable.name),
+                            isReadOnly: variable.type == .tableLookup
                         )
                     }
                 }
@@ -821,7 +826,10 @@ private struct PreviewRibbonContextView: View {
     private func binding(for key: String) -> Binding<String> {
         Binding(
             get: { context[key, default: ""] },
-            set: { context[key] = $0 }
+            set: {
+                context[key] = $0
+                context = VariableEngine.resolvedContext(context, for: document)
+            }
         )
     }
 }
@@ -829,6 +837,7 @@ private struct PreviewRibbonContextView: View {
 private struct PreviewRibbonContextField: View {
     let variable: VariableDefinition
     @Binding var value: String
+    let isReadOnly: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -841,6 +850,8 @@ private struct PreviewRibbonContextField: View {
                 .textFieldStyle(.roundedBorder)
                 .controlSize(.small)
                 .frame(width: 104)
+                .disabled(isReadOnly)
+                .opacity(isReadOnly ? 0.72 : 1)
         }
     }
 }

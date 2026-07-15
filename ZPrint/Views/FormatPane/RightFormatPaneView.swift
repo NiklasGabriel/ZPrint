@@ -93,6 +93,8 @@ struct RightFormatPaneView: View {
             return "Barcode formatieren"
         case .shape:
             return "Form formatieren"
+        case .image:
+            return "Bild formatieren"
         }
     }
 
@@ -124,6 +126,8 @@ struct RightFormatPaneView: View {
             return "barcode"
         case .shape:
             return "rectangle"
+        case .image:
+            return "photo"
         }
     }
 
@@ -143,6 +147,8 @@ struct RightFormatPaneView: View {
         } else if let variable = selectedVariableBinding {
             VariableFormatPane(
                 variable: variable,
+                variables: document.variables,
+                tableSources: $document.tableSources,
                 delete: deleteSelectedVariable
             )
         } else if activePage == .variables {
@@ -175,6 +181,12 @@ struct RightFormatPaneView: View {
             case .shape:
                 ShapeFormatPane(
                     element: shapeBinding(from: element),
+                    labelSize: document.label,
+                    delete: deleteSelectedElement
+                )
+            case .image:
+                ImageFormatPane(
+                    element: imageBinding(from: element),
                     labelSize: document.label,
                     delete: deleteSelectedElement
                 )
@@ -281,6 +293,24 @@ struct RightFormatPaneView: View {
                 return ShapeLabelElement()
             },
             set: { element.wrappedValue = .shape($0) }
+        )
+    }
+
+    private func imageBinding(from element: Binding<LabelElement>) -> Binding<ImageLabelElement> {
+        Binding(
+            get: {
+                if case .image(let imageElement) = element.wrappedValue {
+                    return imageElement
+                }
+                return ImageLabelElement(
+                    fileName: "Bild",
+                    mediaType: "application/octet-stream",
+                    imageData: Data(),
+                    sourceWidth: 1,
+                    sourceHeight: 1
+                )
+            },
+            set: { element.wrappedValue = .image($0) }
         )
     }
 

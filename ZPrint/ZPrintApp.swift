@@ -5,12 +5,14 @@
 //  Created by Niklas Gabriel on 08.07.26.
 //
 
+import AppKit
 import SwiftUI
 
 @main
 struct ZPrintApp: App {
     static let startWindowID = "zprint-start"
 
+    @NSApplicationDelegateAdaptor(ZPrintApplicationDelegate.self) private var applicationDelegate
     @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
@@ -37,6 +39,26 @@ struct ZPrintApp: App {
         .commands {
             ZPrintCommands()
         }
+    }
+}
+
+private final class ZPrintApplicationDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        installApplicationIcon()
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        installApplicationIcon()
+    }
+
+    private func installApplicationIcon() {
+        guard let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+              let icon = NSImage(contentsOf: iconURL) else {
+            return
+        }
+
+        icon.isTemplate = false
+        NSApplication.shared.applicationIconImage = icon
     }
 }
 

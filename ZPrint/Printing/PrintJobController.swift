@@ -42,7 +42,7 @@ final class PrintJobController: ObservableObject {
             return lastSelectedPrinterName
         }
 
-        return selectedPrinterName
+        return printerManager.printers.first?.name ?? selectedPrinterName
     }
 
     func selectedPrinterDidChange(_ printerName: String?) {
@@ -94,20 +94,21 @@ final class PrintJobController: ObservableObject {
     }
 
     func renderPDF(for document: ZPrintDocument) async {
-        let zpl = ZPLEngine.generateBatchZPL(document: document)
+        let pdfDocument = highResolutionPDFDocument(from: document)
+        let zpl = ZPLEngine.generateBatchZPL(document: pdfDocument)
         guard !zpl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             status = .failure("ZPL ist leer.")
             return
         }
 
         isRenderingPDF = true
-        status = .info("ZPL wird als PDF gerendert ...")
+        status = .info("ZPL wird als \(pdfDocument.label.dotsPerInch)-dpi-PDF gerendert ...")
         defer { isRenderingPDF = false }
 
         do {
             let pdfData = try await ZPLPDFRenderer.renderPDF(
                 zpl: zpl,
-                labelSize: document.label
+                labelSize: pdfDocument.label
             )
             let pdfURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("\(sanitizedFileName(document.documentName))-ZPL-Preview-\(UUID().uuidString)")
@@ -120,20 +121,78 @@ final class PrintJobController: ObservableObject {
         }
     }
 
-    func prepareJob(for document: ZPrintDocument) async {
-        let validation = printerManager.validation(for: document.printSettings.selectedPrinterName)
-        guard validation == .valid,
-              let printerName = document.printSettings.selectedPrinterName else {
-            status = .failure(validation.message ?? "Kein Drucker ausgewählt.")
-            return
+    private func highResolutionPDFDocument(from document: ZPrintDocument) -> ZPrintDocument {
+        let targetDPI = min(max(document.label.dotsPerInch, 600), 600)
+        let scale = Double(targetDPI) / Double(max(1, document.label.dotsPerInch))
+
+        guard scale > 1 else {
+            return document
         }
 
-        let zpl = ZPLEngine.generateBatchZPL(document: document)
+        var pdfDocument = document
+        pdfDocument.label = scaledLabelSize(document.label, scale: scale, targetDPI: targetDPI)
+        pdfDocument.elements = document.elements.map { scaledElement($0, scale: scale) }
+        pdfDocument.guides = document.guides.map { guide in
+            var scaledGuide = guide
+            scaledGuide.positionDots = scaledDots(guide.positionDots, scale: scale, minimum: 0)
+            return scaledGuide
+        }
+        return pdfDocument
+    }
+
+    private func scaledLabelSize(_ labelSize: LabelSize, scale: Double, targetDPI: Int) -> LabelSize {
+        LabelSize(
+            id: "\(labelSize.id)-pdf-\(targetDPI)dpi",
+            name: "\(labelSize.name) PDF \(targetDPI) dpi",
+            widthMillimeters: labelSize.widthMillimeters,
+            heightMillimeters: labelSize.heightMillimeters,
+            dotsPerInch: targetDPI,
+            widthDots: scaledDots(labelSize.widthDots, scale: scale, minimum: 1),
+            heightDots: scaledDots(labelSize.heightDots, scale: scale, minimum: 1),
+            isFavorite: labelSize.isFavorite,
+            isInStock: labelSize.isInStock
+        )
+    }
+
+    private func scaledElement(_ element: LabelElement, scale: Double) -> LabelElement {
+        switch element {
+        case .text(var textElement):
+            textElement.frame = scaledFrame(textElement.frame, scale: scale)
+            textElement.fontSizeDots = scaledDots(textElement.fontSizeDots, scale: scale, minimum: 1)
+            return .text(textElement)
+        case .barcode(var barcodeElement):
+            barcodeElement.frame = scaledFrame(barcodeElement.frame, scale: scale)
+            barcodeElement.moduleWidth = scaledDots(barcodeElement.moduleWidth, scale: scale, minimum: 1)
+            return .barcode(barcodeElement)
+        case .shape(var shapeElement):
+            shapeElement.frame = scaledFrame(shapeElement.frame, scale: scale)
+            shapeElement.strokeWidthDots = scaledDots(shapeElement.strokeWidthDots, scale: scale, minimum: 1)
+            return .shape(shapeElement)
+        case .image(var imageElement):
+            imageElement.frame = scaledFrame(imageElement.frame, scale: scale)
+            return .image(imageElement)
+        }
+    }
+
+    private func scaledFrame(_ frame: LabelElementFrame, scale: Double) -> LabelElementFrame {
+        LabelElementFrame(
+            xDots: Int((Double(frame.xDots) * scale).rounded()),
+            yDots: Int((Double(frame.yDots) * scale).rounded()),
+            widthDots: scaledDots(frame.widthDots, scale: scale, minimum: 1),
+            heightDots: scaledDots(frame.heightDots, scale: scale, minimum: 1)
+        )
+    }
+
+    private func scaledDots(_ dots: Int, scale: Double, minimum: Int) -> Int {
+        max(minimum, Int((Double(dots) * scale).rounded()))
+    }
+
+    func prepareJob(for document: ZPrintDocument) async {
         isPreparingJob = true
         defer { isPreparingJob = false }
 
         do {
-            let job = try RawPrintJob.prepare(zpl: zpl, printerName: printerName)
+            let job = try makeFreshPrintJob(for: document)
             preparedJob = job
             status = .success("Druckauftrag vorbereitet.")
         } catch {
@@ -143,30 +202,40 @@ final class PrintJobController: ObservableObject {
     }
 
     func sendPrintJob(for document: ZPrintDocument) async {
-        if preparedJob == nil {
-            await prepareJob(for: document)
-        }
-
-        guard let preparedJob else {
-            return
-        }
-
         isSendingPrintJob = true
         defer { isSendingPrintJob = false }
 
         do {
-            let result = try await preparedJob.send()
+            let job = try makeFreshPrintJob(for: document)
+            preparedJob = job
+            let result = try await job.send()
 
             if result.didSucceed {
                 status = .success("Druckauftrag gesendet.")
             } else {
+                let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                let stdout = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                let message = stderr.isEmpty ? stdout : stderr
                 status = .failure(
-                    "Druck fehlgeschlagen (Exit \(result.exitCode)): \(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))"
+                    message.isEmpty
+                        ? "Druck fehlgeschlagen (Exit \(result.exitCode))."
+                        : "Druck fehlgeschlagen (Exit \(result.exitCode)): \(message)"
                 )
             }
         } catch {
             status = .failure("Druck fehlgeschlagen: \(error.localizedDescription)")
         }
+    }
+
+    private func makeFreshPrintJob(for document: ZPrintDocument) throws -> RawPrintJob {
+        let validation = printerManager.validation(for: document.printSettings.selectedPrinterName)
+        guard validation == .valid,
+              let printerName = document.printSettings.selectedPrinterName else {
+            throw PrintJobControllerError.validation(validation.message ?? "Kein Drucker ausgewählt.")
+        }
+
+        let zpl = ZPLEngine.generateBatchZPL(document: document)
+        return try RawPrintJob.prepare(zpl: zpl, printerName: printerName)
     }
 
     private func sanitizedFileName(_ value: String) -> String {
@@ -178,6 +247,17 @@ final class PrintJobController: ObservableObject {
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return sanitized.isEmpty ? "ZPrint" : sanitized
+    }
+}
+
+private enum PrintJobControllerError: Error, LocalizedError {
+    case validation(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .validation(let message):
+            return message
+        }
     }
 }
 

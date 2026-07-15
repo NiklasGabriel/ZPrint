@@ -85,7 +85,7 @@ struct PreviewWorkspaceView: View {
             scale: scale
         )
         .frame(width: max(1, rect.width), height: max(1, rect.height))
-        .rotationEffect(.degrees(Double(element.rotation.degrees)))
+        .rotationEffect(.degrees(-Double(element.rotation.degrees)))
         .position(x: rect.midX, y: rect.midY)
     }
 
@@ -103,7 +103,7 @@ struct PreviewWorkspaceView: View {
                 context: previewContext
             )
             return .barcode(barcodeElement)
-        case .shape:
+        case .shape, .image:
             return element
         }
     }
@@ -141,6 +141,8 @@ private struct PreviewLabelElementView: View {
                 barcodeElementView(barcodeElement)
             case .shape(let shapeElement):
                 shapeElementView(shapeElement)
+            case .image(let imageElement):
+                LabelImageView(imageData: imageElement.imageData)
             }
         }
     }
@@ -153,7 +155,6 @@ private struct PreviewLabelElementView: View {
             .underline(element.isUnderlined)
             .lineLimit(1)
             .minimumScaleFactor(0.5)
-            .padding(.horizontal, 4)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: element.alignment.previewAlignment)
     }
 
@@ -166,16 +167,29 @@ private struct PreviewLabelElementView: View {
     }
 
     private func barcodeElementView(_ element: BarcodeLabelElement) -> some View {
-        VStack(spacing: 0) {
-            PreviewBarcodeBarsView(value: element.value)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        let readableHeightDots = element.showsHumanReadableText ? min(28, max(14, element.frame.heightDots / 4)) : 0
+        let barHeightDots = max(1, element.frame.heightDots - readableHeightDots)
+
+        return VStack(spacing: 0) {
+            PreviewBarcodeBarsView(
+                value: element.value,
+                moduleWidthDots: Code128Barcode.moduleWidthFitting(
+                    value: element.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "EMPTY" : element.value,
+                    widthDots: element.frame.widthDots,
+                    fallbackModuleWidth: element.moduleWidth
+                ),
+                scale: scale
+            )
+                .frame(height: scale.points(fromDots: barHeightDots))
+                .frame(maxWidth: .infinity)
 
             if element.showsHumanReadableText {
                 Text(element.value)
-                    .font(.system(size: 9, design: .monospaced))
+                    .font(.system(size: max(CGFloat(6), scale.points(fromDots: max(8, readableHeightDots - 6)))))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
+                    .frame(height: scale.points(fromDots: readableHeightDots))
                     .frame(maxWidth: .infinity)
             }
         }
@@ -284,9 +298,12 @@ private extension TextElementAlignment {
 
 private struct PreviewBarcodeBarsView: View {
     let value: String
+    let moduleWidthDots: Int
+    let scale: DotViewScale
 
     var body: some View {
-        let segments = Code128Barcode.segments(for: value)
+        let renderedValue = value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "EMPTY" : value
+        let segments = Code128Barcode.segments(for: renderedValue)
 
         return GeometryReader { proxy in
             if segments.isEmpty {
@@ -295,20 +312,22 @@ private struct PreviewBarcodeBarsView: View {
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                let totalModules = segments.reduce(0) { $0 + $1.widthModules }
-                let fittedModuleWidth = proxy.size.width / CGFloat(max(totalModules, 1))
+                let moduleWidth = max(1, scale.points(fromDots: moduleWidthDots))
+                let barcodeWidth = CGFloat(Code128Barcode.totalModules(for: renderedValue)) * moduleWidth
 
                 HStack(alignment: .bottom, spacing: 0) {
                     ForEach(segments) { segment in
                         Rectangle()
                             .fill(segment.isBar ? Color.black : Color.clear)
                             .frame(
-                                width: CGFloat(segment.widthModules) * fittedModuleWidth,
+                                width: CGFloat(segment.widthModules) * moduleWidth,
                                 height: proxy.size.height
                             )
                     }
                 }
+                .frame(width: barcodeWidth, height: proxy.size.height, alignment: .leading)
                 .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
+                .clipped()
             }
         }
     }
